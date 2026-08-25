@@ -31,6 +31,7 @@ lib/
   features/
     home/home_screen.dart
     folders/folders_screen.dart
+    folders/folder_videos_screen.dart
     playlists/playlists_screen.dart
     reels/reels_screen.dart
     settings/settings_screen.dart
@@ -85,7 +86,7 @@ The app observes lifecycle `resumed` events and checks native permission state a
 
 The Android bridge queries `MediaStore.Video.Media` using `MediaStore.VOLUME_EXTERNAL` on Android 10 and newer, which provides the system view across shared external storage volumes, including indexed removable SD-card volumes. Android 9 uses `MediaStore.Video.Media.EXTERNAL_CONTENT_URI`. The query returns stable content URIs plus display name, file size, duration, resolution, MIME type, modification time, and storage path metadata.
 
-Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thumbnailized through `ContentResolver.loadThumbnail()` when available, while explicitly selected custom directories use the local video-thumbnail fallback. The Folders tab exposes a `Pick a folder` action through `file_picker` for USB/SD/custom locations that are not visible in the user’s MediaStore view; only explicitly selected directories use the targeted filesystem fallback.
+Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thumbnailized through `ContentResolver.loadThumbnail()` when available, while explicitly selected custom directories use the local video-thumbnail fallback. The Folders tab exposes a `Pick a folder` action through `file_picker` for USB/SD/custom locations that are not visible in the user’s MediaStore view; only explicitly selected directories use the targeted filesystem fallback. Tapping a Smart folder or Folders item opens `FolderVideosScreen`, which provides folder-scoped video browsing, sort/filter controls, grid/list switching, direct player navigation, and standard back navigation.
 
 ## Playback notes
 

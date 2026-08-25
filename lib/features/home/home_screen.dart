@@ -6,6 +6,7 @@ import '../../core/widgets/nova_widgets.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
 import '../media/presentation/video_card.dart';
+import '../folders/folder_videos_screen.dart';
 import '../player/player_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -124,7 +125,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           separatorBuilder: (_, _) => const SizedBox(width: 11),
                           itemBuilder: (_, index) => _FolderCard(
                             folder: folders[index],
-                            onTap: () => _showFolder(folders[index]),
+                            onTap: () =>
+                                _openFolder(folders[index], library.files),
                           ),
                         ),
                       ),
@@ -296,10 +298,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  void _showFolder(FolderSummary folder) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Opening ${folder.name}')));
+  void _openFolder(FolderSummary folder, List<VideoFile> files) {
+    final folderVideos = files
+        .where((file) => file.folderName == folder.name)
+        .toList();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            FolderVideosScreen(folder: folder, videos: folderVideos),
+      ),
+    );
   }
 }
 

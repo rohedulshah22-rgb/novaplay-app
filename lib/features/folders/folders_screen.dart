@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../media/presentation/media_providers.dart';
+import 'folder_videos_screen.dart';
 
 class FoldersScreen extends ConsumerWidget {
   const FoldersScreen({super.key});
@@ -81,13 +82,19 @@ class FoldersScreen extends ConsumerWidget {
                 itemBuilder: (_, index) {
                   final folder = folders[index];
                   return GlassCard(
-                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Folder browser for ${folder.name} is ready for the next view.',
+                    onTap: () {
+                      final videos = library.files
+                          .where((file) => file.folderName == folder.name)
+                          .toList();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => FolderVideosScreen(
+                            folder: folder,
+                            videos: videos,
+                          ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                     child: Row(
                       children: [
                         Container(
