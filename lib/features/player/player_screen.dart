@@ -12,6 +12,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../media/domain/video_file.dart';
+import 'ai_subtitle_preferences.dart';
+import 'ai_subtitle_service.dart';
 import 'capture_service.dart';
 import 'precision_scrubber.dart';
 
@@ -50,6 +52,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int batteryPercent = 0;
   String systemTime = '';
   final captureService = const CaptureService();
+  final aiSubtitleService = AiSubtitleService();
+  Timer? _subtitleTimer;
+  bool aiSubtitlesEnabled = false;
+  String aiSubtitleLanguage = 'English';
+  double aiSubtitleFontScale = 1.0;
+  AiCaption? _activeCaption;
+  bool _subtitleRequestInFlight = false;
 
   @override
   void initState() {
@@ -57,6 +66,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     player = Player(configuration: const PlayerConfiguration(pitch: true));
     controller = VideoController(player);
     player.open(Media(widget.file.path), play: true);
+    _loadAiSubtitlePreferences();
     WakelockPlus.enable();
     _enableAutoOrientation();
     _loadSystemLevels();
@@ -101,6 +111,184 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
       }
     }
+  }
+
+  Future<void> _loadAiSubtitlePreferences() async {
+    final values = await AiSubtitlePreferences.load();
+    if (!mounted) return;
+    setState(() {
+      aiSubtitlesEnabled = values.enabled;
+      aiSubtitleLanguage = values.language;
+      aiSubtitleFontScale = values.fontScale;
+    });
+    if (aiSubtitlesEnabled) _startSubtitleLoop();
+  }
+
+  AiSubtitleLanguage get _selectedSubtitleLanguage =>
+      AiSubtitlePreferences.languages.firstWhere(
+        (language) => language.label == aiSubtitleLanguage,
+        orElse: () => AiSubtitlePreferences.languages.first,
+      );
+
+  Future<void> _setAiSubtitlesEnabled(bool enabled) async {
+    if (!mounted) return;
+    setState(() {
+      aiSubtitlesEnabled = enabled;
+      if (!enabled) _activeCaption = null;
+    });
+    await AiSubtitlePreferences.save(enabled: enabled);
+    if (!mounted) return;
+    if (enabled) {
+      _startSubtitleLoop();
+      _showHud('AI CC on', Icons.closed_caption_rounded);
+    } else {
+      _stopSubtitleLoop();
+      _showHud('AI CC off', Icons.closed_caption_disabled_rounded);
+    }
+  }
+
+  Future<void> _setAiSubtitleLanguage(String language) async {
+    setState(() => aiSubtitleLanguage = language);
+    await AiSubtitlePreferences.save(language: language);
+    if (aiSubtitlesEnabled) _requestSubtitle();
+  }
+
+  Future<void> _setAiSubtitleFontScale(double scale) async {
+    setState(() => aiSubtitleFontScale = scale);
+    await AiSubtitlePreferences.save(fontScale: scale);
+  }
+
+  void _startSubtitleLoop() {
+    _subtitleTimer?.cancel();
+    _subtitleTimer = Timer.periodic(
+      const Duration(seconds: 6),
+      (_) => _requestSubtitle(),
+    );
+    _requestSubtitle();
+  }
+
+  void _stopSubtitleLoop() {
+    _subtitleTimer?.cancel();
+    _subtitleTimer = null;
+  }
+
+  Future<void> _requestSubtitle() async {
+    if (!aiSubtitlesEnabled || _subtitleRequestInFlight) return;
+    _subtitleRequestInFlight = true;
+    try {
+      final caption = await aiSubtitleService.recognizeAndTranslate(
+        sourcePath: widget.file.path,
+        position: player.state.position,
+        language: _selectedSubtitleLanguage,
+      );
+      if (!mounted || !aiSubtitlesEnabled) return;
+      if (caption != null) setState(() => _activeCaption = caption);
+    } on AiSubtitleException catch (error) {
+      if (mounted) _showHud(error.message, Icons.info_outline_rounded);
+    } catch (_) {
+      if (mounted) {
+        _showHud(
+          'AI CC could not read this audio',
+          Icons.error_outline_rounded,
+        );
+      }
+    } finally {
+      _subtitleRequestInFlight = false;
+    }
+  }
+
+  void _showAiSubtitleSettings() {
+    var enabled = aiSubtitlesEnabled;
+    var language = aiSubtitleLanguage;
+    var fontScale = aiSubtitleFontScale;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'AI Live Subtitles',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Opt in to transcribe short audio windows and translate spoken dialogue.',
+                  style: TextStyle(color: Colors.white.withValues(alpha: .68)),
+                ),
+                const SizedBox(height: 14),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: enabled,
+                  title: const Text('AI CC'),
+                  subtitle: const Text('Off by default on fresh installs'),
+                  secondary: Icon(
+                    enabled
+                        ? Icons.closed_caption_rounded
+                        : Icons.closed_caption_disabled_rounded,
+                    color: enabled ? NovaColors.cyan : Colors.white54,
+                  ),
+                  onChanged: (value) {
+                    setSheetState(() => enabled = value);
+                    _setAiSubtitlesEnabled(value);
+                  },
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  initialValue: language,
+                  decoration: const InputDecoration(
+                    labelText: 'Target language',
+                    prefixIcon: Icon(Icons.translate_rounded),
+                  ),
+                  items: AiSubtitlePreferences.languages
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item.label,
+                          child: Text(item.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setSheetState(() => language = value);
+                    _setAiSubtitleLanguage(value);
+                  },
+                ),
+                const SizedBox(height: 13),
+                Row(
+                  children: [
+                    const Icon(Icons.format_size_rounded, size: 20),
+                    const SizedBox(width: 10),
+                    const Text('Caption size'),
+                    Expanded(
+                      child: Slider(
+                        min: .8,
+                        max: 1.8,
+                        divisions: 5,
+                        value: fontScale,
+                        label: '${(fontScale * 100).round()}%',
+                        onChanged: (value) {
+                          setSheetState(() => fontScale = value);
+                          _setAiSubtitleFontScale(value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _enableAutoOrientation() {
@@ -209,7 +397,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _hideTimer?.cancel();
     _statusTimer?.cancel();
+    _subtitleTimer?.cancel();
     _sensorSubscription?.cancel();
+    aiSubtitleService.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -400,6 +590,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
               if (_seekPreview != null)
                 Center(child: _SeekPreview(position: _seekPreview!)),
+              if (aiSubtitlesEnabled && _activeCaption != null)
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: orientation == Orientation.landscape ? 64 : 84,
+                  child: SafeArea(
+                    child: _AiCaptionPill(
+                      text: _activeCaption!.text,
+                      fontScale: aiSubtitleFontScale,
+                      language: aiSubtitleLanguage,
+                    ),
+                  ),
+                ),
               if (orientation == Orientation.landscape && systemTime.isNotEmpty)
                 Positioned(
                   top: 10,
@@ -446,6 +649,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onGif: _captureGif,
                     dialogueEnhancerEnabled: dialogueEnhancer,
                     onDialogueEnhancer: _toggleDialogueEnhancer,
+                    aiSubtitlesEnabled: aiSubtitlesEnabled,
+                    onAiSubtitles: _showAiSubtitleSettings,
                     onOrientation: _toggleManualOrientation,
                     onAspectRatio: _cycleAspectRatio,
                     orientationLocked: orientationLocked,
@@ -505,6 +710,8 @@ class _ControlsOverlay extends StatelessWidget {
     required this.onGif,
     required this.dialogueEnhancerEnabled,
     required this.onDialogueEnhancer,
+    required this.aiSubtitlesEnabled,
+    required this.onAiSubtitles,
     required this.onOrientation,
     required this.onAspectRatio,
     required this.orientationLocked,
@@ -522,6 +729,8 @@ class _ControlsOverlay extends StatelessWidget {
   final VoidCallback onGif;
   final bool dialogueEnhancerEnabled;
   final VoidCallback onDialogueEnhancer;
+  final bool aiSubtitlesEnabled;
+  final VoidCallback onAiSubtitles;
   final VoidCallback onOrientation;
   final VoidCallback onAspectRatio;
   final bool orientationLocked;
@@ -631,6 +840,20 @@ class _ControlsOverlay extends StatelessWidget {
                       ),
                     ),
                     IconButton(
+                      tooltip: aiSubtitlesEnabled
+                          ? 'Configure AI live subtitles'
+                          : 'Enable AI live subtitles',
+                      onPressed: onAiSubtitles,
+                      icon: Icon(
+                        aiSubtitlesEnabled
+                            ? Icons.closed_caption_rounded
+                            : Icons.closed_caption_disabled_rounded,
+                        color: aiSubtitlesEnabled
+                            ? NovaColors.cyan
+                            : Colors.white,
+                      ),
+                    ),
+                    IconButton(
                       tooltip: 'Save high-resolution snapshot',
                       onPressed: onSnapshot,
                       icon: const Icon(Icons.photo_camera_outlined),
@@ -706,6 +929,66 @@ class _ControlsOverlay extends StatelessWidget {
                 ],
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AiCaptionPill extends StatelessWidget {
+  const _AiCaptionPill({
+    required this.text,
+    required this.fontScale,
+    required this.language,
+  });
+
+  final String text;
+  final double fontScale;
+  final String language;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .82),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: .24)),
+            boxShadow: const [
+              BoxShadow(color: Colors.black54, blurRadius: 12, spreadRadius: 2),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(15, 9, 15, 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  text,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 17 * fontScale,
+                    height: 1.22,
+                    fontWeight: FontWeight.w800,
+                    shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'AI CC · $language',
+                  style: TextStyle(
+                    color: NovaColors.cyan.withValues(alpha: .86),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .7,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

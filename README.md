@@ -11,6 +11,7 @@ NovaPlay is a dark-first, offline Android video player built with Flutter. Curre
 | Filtering | Duration chips and resolution chips, with search across filenames and folder names |
 | Playback | MediaKit/libmpv-backed video rendering, play/pause, double-tap ±10 seconds, horizontal seek preview, left brightness swipe, right volume swipe, auto-hide controls, lock mode, speed presets from 0.25x to 3x |
 | Dialogue Enhancer | One-tap HUD toggle that writes an MPV `af` chain with low-frequency reduction, vocal-band boosts, and compression for clearer dialogue |
+| AI Live Subtitles | Opt-in `AI CC` HUD control; extracts six-second audio windows locally, sends them to a configured Whisper-compatible relay or optional OpenAI build-time endpoint, translates to Bengali, Hindi, English, Spanish, Japanese, Korean, French, German, Arabic, Portuguese, or Chinese, and renders high-contrast captions |
 | Capture | One-tap high-resolution PNG snapshot via MediaKit and five-second animated GIF export via FFmpegKit, saved to named gallery albums |
 | Precision scrubbing | Timestamped thumbnail strip generated from the local video while dragging the seek bar |
 | Reels | Dedicated full-screen vertical PageView feed that prioritizes portrait videos and keeps playback lifecycle scoped to each page |
@@ -38,6 +39,8 @@ lib/
     vault/vault_provider.dart
     vault/vault_screen.dart
     player/player_screen.dart
+    player/ai_subtitle_preferences.dart
+    player/ai_subtitle_service.dart
     player/capture_service.dart
     player/precision_scrubber.dart
     media/
@@ -92,6 +95,14 @@ Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thum
 
 MediaKit is initialized before `runApp`, and each player instance is disposed with the screen. The player uses the video package and native video libraries recommended by the MediaKit package documentation. Gesture behavior is implemented in the Flutter layer, while MediaKit provides codec/track/rate/seek primitives. External subtitles are loaded as a `SubtitleTrack.uri` after a native file pick. PiP is exposed through a small Android `MethodChannel`, guarded for Android versions below Oreo.
 
+### AI Live Subtitles and translation
+
+AI CC is deliberately **OFF on fresh installation**. The player loads the saved toggle, target language, and caption-size preference from `SharedPreferences`; no speech-recognition request is made until the user opens the player controls and enables AI CC. The bottom sheet provides the On/Off switch, target language picker, and caption-size slider. Disabling AI CC cancels the six-second polling loop and removes the caption overlay.
+
+When enabled, NovaPlay uses FFmpegKit to extract a short mono 16 kHz WAV window from the active local video, then submits that window to a Whisper-compatible multipart endpoint. The endpoint is configured at build time with `--dart-define=NOVAPLAY_AI_SUBTITLE_ENDPOINT=https://your-relay.example/v1/subtitles`; it should authenticate upstream and return JSON containing `translated_text`, `translation`, `text`, `transcript`, or a `segments` array. This relay-first design keeps provider credentials out of the APK. For development-only builds, a direct OpenAI fallback can be enabled with `--dart-define=NOVAPLAY_OPENAI_API_KEY=...`; do not ship a long-lived provider key inside a public APK. The optional model names are `NOVAPLAY_AI_MODEL` and `NOVAPLAY_TRANSLATION_MODEL`.
+
+The caption overlay is bottom-aligned, high contrast, shadowed, and labeled with the selected target language. Protected `content://` media sources currently report a clear limitation message rather than attempting an unsafe copy. The service is owned by `PlayerScreen`, and its HTTP client and polling timer are closed when the player route is disposed.
+
 Inside `PlayerScreen`, the player allows portrait and both landscape orientations, listens to accelerometer sensor events when orientation is not manually locked, switches landscape playback to immersive system UI, and restores portrait/edge-to-edge behavior on exit. The HUD includes a manual orientation lock button, aspect cycling across Fit, Fill, 16:9, Stretch, and Original, two-finger pinch zoom, and a fullscreen battery/time pill.
 
 Folder detail views default to natural A-to-Z ordering. `NaturalSort` recognizes S01E01, E01, Episode 1, and similar episode tokens before applying token-aware numeric comparison, so Episode 10 follows Episode 9 instead of sorting before it. Folder sort, duration filter, resolution filter, and grid/list preferences are persisted with `SharedPreferences`; Recent and Largest remain available from the view menu.
@@ -128,3 +139,5 @@ The current source is intentionally modular so the next production iteration can
 [14]: https://developer.android.com/about/versions/14/changes/partial-photo-video-access "Grant partial access to photos and videos"
 [15]: https://developer.android.com/reference/android/provider/MediaStore "MediaStore API reference"
 [16]: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_VISUAL_USER_SELECTED "READ_MEDIA_VISUAL_USER_SELECTED permission"
+[17]: https://platform.openai.com/docs/guides/speech-to-text "OpenAI speech-to-text guide"
+[18]: https://platform.openai.com/docs/api-reference/audio/createTranscription "OpenAI transcription API reference"
