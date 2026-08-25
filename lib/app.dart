@@ -1,17 +1,42 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/theme/app_theme.dart';
 import 'features/folders/folders_screen.dart';
 import 'features/home/home_screen.dart';
+import 'features/media/presentation/media_providers.dart';
 import 'features/playlists/playlists_screen.dart';
 import 'features/reels/reels_screen.dart';
 import 'features/settings/settings_screen.dart';
-import 'features/media/presentation/media_providers.dart';
 
-class NovaPlayApp extends StatelessWidget {
+class NovaPlayApp extends ConsumerStatefulWidget {
   const NovaPlayApp({super.key});
+
+  @override
+  ConsumerState<NovaPlayApp> createState() => _NovaPlayAppState();
+}
+
+class _NovaPlayAppState extends ConsumerState<NovaPlayApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(mediaLibraryProvider.notifier).onAppResumed();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

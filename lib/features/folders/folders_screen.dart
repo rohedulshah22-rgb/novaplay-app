@@ -21,6 +21,12 @@ class FoldersScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
+            tooltip: 'Pick a folder',
+            onPressed: media.pickCustomDirectory,
+            icon: const Icon(Icons.create_new_folder_outlined),
+          ),
+          IconButton(
+            tooltip: 'Refresh media store',
             onPressed: () => media.load(force: true),
             icon: const Icon(Icons.refresh_rounded),
           ),
@@ -49,9 +55,21 @@ class FoldersScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 7),
                   const Center(
-                    child: Text(
-                      'NovaPlay will group your videos by folder after scanning.',
-                      style: TextStyle(color: NovaColors.muted),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 24),
+                      child: Text(
+                        'NovaPlay will group videos from MediaStore after scanning. For USB/SD locations or folders hidden from MediaStore, pick a directory manually.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: NovaColors.muted),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Center(
+                    child: FilledButton.icon(
+                      onPressed: media.pickCustomDirectory,
+                      icon: const Icon(Icons.folder_open_rounded),
+                      label: const Text('Pick a folder'),
                     ),
                   ),
                 ],

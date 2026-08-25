@@ -13,6 +13,9 @@ class VideoFile {
     this.height = 0,
     this.progress = Duration.zero,
     this.thumbnailPath,
+    this.contentUri,
+    this.relativePath,
+    this.mimeType = 'video/*',
   });
 
   final String id;
@@ -25,6 +28,9 @@ class VideoFile {
   final int height;
   final Duration progress;
   final String? thumbnailPath;
+  final String? contentUri;
+  final String? relativePath;
+  final String mimeType;
 
   String get extension => p.extension(name).replaceFirst('.', '').toUpperCase();
   String get resolution {
@@ -35,7 +41,22 @@ class VideoFile {
     return 'HD';
   }
 
-  String get folderName => p.basename(p.dirname(path));
+  String get folderName {
+    final indexedPath = relativePath;
+    if (indexedPath != null && indexedPath.isNotEmpty) {
+      final normalized = indexedPath
+          .replaceAll('\\', '/')
+          .replaceFirst(RegExp(r'/$'), '');
+      final segments = normalized
+          .split('/')
+          .where((segment) => segment.isNotEmpty)
+          .toList();
+      if (segments.length >= 2) return segments[segments.length - 2];
+      if (segments.isNotEmpty) return segments.first;
+    }
+    return p.basename(p.dirname(path));
+  }
+
   double get completion => duration.inMilliseconds == 0
       ? 0
       : (progress.inMilliseconds / duration.inMilliseconds).clamp(0, 1);
@@ -57,6 +78,9 @@ class VideoFile {
     height: height ?? this.height,
     progress: progress ?? this.progress,
     thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+    contentUri: contentUri,
+    relativePath: relativePath,
+    mimeType: mimeType,
   );
 
   Map<String, dynamic> toJson() => {
@@ -70,19 +94,29 @@ class VideoFile {
     'height': height,
     'progressMs': progress.inMilliseconds,
     'thumbnailPath': thumbnailPath,
+    'contentUri': contentUri,
+    'relativePath': relativePath,
+    'mimeType': mimeType,
   };
 
   factory VideoFile.fromJson(Map<String, dynamic> json) => VideoFile(
     id: json['id'] as String,
     path: json['path'] as String,
     name: json['name'] as String,
-    sizeBytes: json['sizeBytes'] as int,
+    sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
     modifiedAt: DateTime.parse(json['modifiedAt'] as String),
-    duration: Duration(milliseconds: (json['durationMs'] as int?) ?? 0),
-    width: (json['width'] as int?) ?? 0,
-    height: (json['height'] as int?) ?? 0,
-    progress: Duration(milliseconds: (json['progressMs'] as int?) ?? 0),
+    duration: Duration(
+      milliseconds: (json['durationMs'] as num?)?.toInt() ?? 0,
+    ),
+    width: (json['width'] as num?)?.toInt() ?? 0,
+    height: (json['height'] as num?)?.toInt() ?? 0,
+    progress: Duration(
+      milliseconds: (json['progressMs'] as num?)?.toInt() ?? 0,
+    ),
     thumbnailPath: json['thumbnailPath'] as String?,
+    contentUri: json['contentUri'] as String?,
+    relativePath: json['relativePath'] as String?,
+    mimeType: json['mimeType'] as String? ?? 'video/*',
   );
 }
 

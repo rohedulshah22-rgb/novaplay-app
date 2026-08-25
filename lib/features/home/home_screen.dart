@@ -147,7 +147,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     const SizedBox(height: 8),
                     if (!library.hasPermission)
-                      const _PermissionCard()
+                      _PermissionCard(
+                        description: library.permissionDescription,
+                        onRequest: media.requestPermissionFromBanner,
+                        onSettings: library.needsPermissionSettings
+                            ? media.openPermissionSettings
+                            : null,
+                      )
                     else if (library.isScanning && library.files.isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 42),
@@ -505,22 +511,61 @@ class _EmptyLibrary extends StatelessWidget {
 }
 
 class _PermissionCard extends StatelessWidget {
-  const _PermissionCard();
+  const _PermissionCard({
+    required this.description,
+    required this.onRequest,
+    this.onSettings,
+  });
+  final String description;
+  final VoidCallback onRequest;
+  final VoidCallback? onSettings;
+
   @override
-  Widget build(BuildContext context) => GlassCard(
-    child: const Row(
-      children: [
-        Icon(Icons.lock_outline_rounded, color: NovaColors.yellow),
-        SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            'NovaPlay needs video access to build your offline library.',
-            style: TextStyle(fontSize: 13, height: 1.35),
+  Widget build(BuildContext context) {
+    return GlassCard(
+      child: Row(
+        children: [
+          const Icon(Icons.lock_outline_rounded, color: NovaColors.yellow),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Video access is off',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: NovaColors.muted,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  children: [
+                    TextButton(
+                      onPressed: onRequest,
+                      child: const Text('Allow access'),
+                    ),
+                    if (onSettings != null)
+                      TextButton(
+                        onPressed: onSettings,
+                        child: const Text('Open Settings'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 class _ErrorCard extends StatelessWidget {

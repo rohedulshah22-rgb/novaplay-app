@@ -1,6 +1,6 @@
 # NovaPlay
 
-NovaPlay is a dark-first, offline Android video player built with Flutter. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
+NovaPlay is a dark-first, offline Android video player built with Flutter. Current release: **1.0.1+2**. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
 
 ## Included product surface
 
@@ -41,6 +41,7 @@ lib/
     player/precision_scrubber.dart
     media/
       data/media_repository.dart
+      data/thumbnail_cache.dart
       domain/video_file.dart
       presentation/media_providers.dart
       presentation/video_card.dart
@@ -50,6 +51,7 @@ android/app/src/main/
 test/widget_test.dart
 pubspec.yaml
 docs-feature-research.md
+docs-media-architecture.md
 ```
 
 ## Local development
@@ -75,7 +77,15 @@ The sandbox validation completed successfully for `flutter analyze` and `flutter
 
 ## Android permission behavior
 
-Android 13 and newer request the media-video permission through `permission_handler`; older Android versions fall back to external-storage permission. The repository scans well-known roots first, then the shared external-storage root, deduplicates paths, caps the result at 3,000 files, and persists a JSON cache in `SharedPreferences`. The next production hardening step for very large libraries is replacing the recursive filesystem pass with a MediaStore query and WorkManager-triggered incremental updates.
+NovaPlay now uses a native version-aware permission bridge. Android 14 and newer request `READ_MEDIA_VIDEO` together with `READ_MEDIA_VISUAL_USER_SELECTED`, Android 13 requests `READ_MEDIA_VIDEO`, and Android 9 through Android 12 requests `READ_EXTERNAL_STORAGE`. The first library load triggers the native system permission dialog. The Home banner can request access again or open the app’s Settings page when Android reports a permanently denied state.
+
+The app observes lifecycle `resumed` events and checks native permission state again after returning from Settings. When full/partial/denied state changes, the library is refreshed without requiring an app restart. Permission state is not treated as permanent cached data, matching Android’s guidance for selected-media access [13] [14].
+
+## MediaStore and removable storage
+
+The Android bridge queries `MediaStore.Video.Media` using `MediaStore.VOLUME_EXTERNAL` on Android 10 and newer, which provides the system view across shared external storage volumes, including indexed removable SD-card volumes. Android 9 uses `MediaStore.Video.Media.EXTERNAL_CONTENT_URI`. The query returns stable content URIs plus display name, file size, duration, resolution, MIME type, modification time, and storage path metadata.
+
+Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thumbnailized through `ContentResolver.loadThumbnail()` when available, while explicitly selected custom directories use the local video-thumbnail fallback. The Folders tab exposes a `Pick a folder` action through `file_picker` for USB/SD/custom locations that are not visible in the user’s MediaStore view; only explicitly selected directories use the targeted filesystem fallback.
 
 ## Playback notes
 
@@ -107,3 +117,7 @@ The current source is intentionally modular so the next production iteration can
 [10]: https://pub.dev/packages/ffmpeg_kit_flutter_new "ffmpeg_kit_flutter_new package documentation"
 [11]: https://pub.dev/packages/saver_gallery "saver_gallery package documentation"
 [12]: https://mpv-player-mpv.mintlify.app/av/audio-filters "MPV audio filters documentation"
+[13]: https://developer.android.com/training/data-storage/shared/media "Access media files from shared storage"
+[14]: https://developer.android.com/about/versions/14/changes/partial-photo-video-access "Grant partial access to photos and videos"
+[15]: https://developer.android.com/reference/android/provider/MediaStore "MediaStore API reference"
+[16]: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_VISUAL_USER_SELECTED "READ_MEDIA_VISUAL_USER_SELECTED permission"

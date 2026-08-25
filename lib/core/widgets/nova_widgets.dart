@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
@@ -134,11 +136,13 @@ class MediaArtwork extends StatelessWidget {
   const MediaArtwork({
     super.key,
     this.bytes,
+    this.imagePath,
     this.gradient,
     this.icon = Icons.movie_outlined,
     this.aspectRatio = 16 / 10,
   });
   final Uint8List? bytes;
+  final String? imagePath;
   final Gradient? gradient;
   final IconData icon;
   final double aspectRatio;
@@ -151,6 +155,8 @@ class MediaArtwork extends StatelessWidget {
         borderRadius: BorderRadius.circular(15),
         child: bytes != null
             ? Image.memory(bytes!, fit: BoxFit.cover)
+            : imagePath != null
+            ? Image.file(File(imagePath!), fit: BoxFit.cover)
             : DecoratedBox(
                 decoration: BoxDecoration(
                   gradient:

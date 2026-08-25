@@ -1,13 +1,11 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/nova_widgets.dart';
 import '../domain/video_file.dart';
+import '../data/thumbnail_cache.dart';
 
-class VideoArtwork extends StatelessWidget {
+class VideoArtwork extends StatefulWidget {
   const VideoArtwork({
     super.key,
     required this.file,
@@ -17,18 +15,34 @@ class VideoArtwork extends StatelessWidget {
   final double aspectRatio;
 
   @override
+  State<VideoArtwork> createState() => _VideoArtworkState();
+}
+
+class _VideoArtworkState extends State<VideoArtwork> {
+  late Future<String?> thumbnail;
+
+  @override
+  void initState() {
+    super.initState();
+    thumbnail = const ThumbnailCache().get(widget.file);
+  }
+
+  @override
+  void didUpdateWidget(covariant VideoArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.file.id != widget.file.id) {
+      thumbnail = const ThumbnailCache().get(widget.file);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Uint8List?>(
-      future: VideoThumbnail.thumbnailData(
-        video: file.path,
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: 480,
-        quality: 65,
-      ),
+    return FutureBuilder<String?>(
+      future: thumbnail,
       builder: (context, snapshot) {
         return MediaArtwork(
-          bytes: snapshot.data,
-          aspectRatio: aspectRatio,
+          imagePath: snapshot.data,
+          aspectRatio: widget.aspectRatio,
           icon: Icons.movie_creation_outlined,
           gradient: LinearGradient(
             colors: [

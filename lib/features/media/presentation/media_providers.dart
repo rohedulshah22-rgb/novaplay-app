@@ -1,10 +1,11 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/media_repository.dart';
 import '../domain/video_file.dart';
 
 final mediaRepositoryProvider = Provider<MediaRepository>(
-  (ref) => MediaRepository(),
+  (ref) => const MediaRepository(),
 );
 final appTabProvider = NotifierProvider<AppTabController, int>(
   AppTabController.new,
@@ -25,19 +26,37 @@ class MediaLibraryState {
   const MediaLibraryState({
     this.files = const [],
     this.isScanning = false,
-    this.hasPermission = true,
+    this.hasPermission = false,
+    this.permission,
     this.errorMessage,
     this.query = '',
     this.durationFilter = 'All',
     this.resolutionFilter = 'All',
   });
+
   final List<VideoFile> files;
   final bool isScanning;
   final bool hasPermission;
+  final PermissionSnapshot? permission;
   final String? errorMessage;
   final String query;
   final String durationFilter;
   final String resolutionFilter;
+
+  bool get needsPermissionSettings => permission?.needsSettings ?? false;
+  String get permissionDescription {
+    final snapshot = permission;
+    if (snapshot == null || snapshot.api == 0) {
+      return 'Allow access to build your offline library.';
+    }
+    if (snapshot.isAndroid14OrNewer) {
+      return 'Allow all videos, or choose selected videos for NovaPlay.';
+    }
+    if (snapshot.isAndroid13OrNewer) {
+      return 'Allow NovaPlay to read videos on this device.';
+    }
+    return 'Allow NovaPlay to read videos from shared storage.';
+  }
 
   List<VideoFile> get filteredFiles {
     final normalized = query.trim().toLowerCase();
@@ -64,6 +83,7 @@ class MediaLibraryState {
 
   List<VideoFile> get recentlyPlayed =>
       files.where((file) => file.progress > Duration.zero).take(8).toList();
+
   List<FolderSummary> folders(MediaRepository repository) =>
       repository.foldersFor(files);
 
@@ -71,6 +91,7 @@ class MediaLibraryState {
     List<VideoFile>? files,
     bool? isScanning,
     bool? hasPermission,
+    PermissionSnapshot? permission,
     String? errorMessage,
     bool clearError = false,
     String? query,
@@ -80,6 +101,7 @@ class MediaLibraryState {
     files: files ?? this.files,
     isScanning: isScanning ?? this.isScanning,
     hasPermission: hasPermission ?? this.hasPermission,
+    permission: permission ?? this.permission,
     errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
     query: query ?? this.query,
     durationFilter: durationFilter ?? this.durationFilter,
@@ -89,32 +111,88 @@ class MediaLibraryState {
 
 class MediaLibraryNotifier extends Notifier<MediaLibraryState> {
   late final MediaRepository repository;
+  bool _hasRequestedPermissionThisSession = false;
 
   @override
   MediaLibraryState build() {
     repository = ref.read(mediaRepositoryProvider);
-    Future.microtask(load);
+    Future.microtask(() => load(requestPermission: true));
     return const MediaLibraryState();
   }
 
-  Future<void> load({bool force = false}) async {
+  Future<void> load({
+    bool force = false,
+    bool requestPermission = false,
+  }) async {
     state = state.copyWith(isScanning: true, clearError: true);
     try {
-      final hasPermission = await repository.requestVideoAccess();
-      if (!hasPermission) {
-        state = state.copyWith(hasPermission: false, isScanning: false);
+      final permission =
+          requestPermission && !_hasRequestedPermissionThisSession
+          ? await repository.requestVideoAccess()
+          : await repository.permissionState();
+      _hasRequestedPermissionThisSession =
+          _hasRequestedPermissionThisSession || requestPermission;
+      if (!permission.granted) {
+        state = state.copyWith(
+          permission: permission,
+          hasPermission: false,
+          isScanning: false,
+        );
         return;
       }
       final files = await repository.scan(force: force);
       state = state.copyWith(
         files: files,
+        permission: permission,
         hasPermission: true,
         isScanning: false,
       );
     } catch (_) {
       state = state.copyWith(
         isScanning: false,
-        errorMessage: 'Could not scan local storage',
+        errorMessage: 'Could not scan the device media library',
+      );
+    }
+  }
+
+  Future<void> onAppResumed() async {
+    final permission = await repository.permissionState();
+    final changed =
+        permission.granted != state.hasPermission ||
+        permission.partial != (state.permission?.partial ?? false);
+    if (changed || state.files.isEmpty) {
+      await load(force: true, requestPermission: false);
+    }
+  }
+
+  Future<void> requestPermissionFromBanner() async {
+    _hasRequestedPermissionThisSession = false;
+    await load(force: true, requestPermission: true);
+  }
+
+  Future<void> openPermissionSettings() => repository.openAppSettings();
+
+  Future<void> pickCustomDirectory() async {
+    final directory = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose a video folder',
+    );
+    if (directory == null || directory.isEmpty) return;
+    state = state.copyWith(isScanning: true, clearError: true);
+    try {
+      final selected = await repository.scanCustomDirectory(directory);
+      final merged = <String, VideoFile>{
+        for (final file in state.files) file.id: file,
+        for (final file in selected) file.id: file,
+      };
+      state = state.copyWith(
+        files: merged.values.toList()
+          ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt)),
+        isScanning: false,
+      );
+    } catch (_) {
+      state = state.copyWith(
+        isScanning: false,
+        errorMessage: 'Could not read that folder',
       );
     }
   }
