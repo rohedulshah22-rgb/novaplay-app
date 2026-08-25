@@ -226,89 +226,196 @@ class _PlayerScreenState extends State<PlayerScreen> {
       context: context,
       backgroundColor: NovaColors.surface,
       showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
+        builder: (context, setSheetState) {
+          final landscape =
+              MediaQuery.orientationOf(context) == Orientation.landscape;
+          final controls = <Widget>[
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: enabled,
+              title: const Text('AI CC'),
+              subtitle: const Text('Off by default on fresh installs'),
+              secondary: Icon(
+                enabled
+                    ? Icons.closed_caption_rounded
+                    : Icons.closed_caption_disabled_rounded,
+                color: enabled ? NovaColors.cyan : Colors.white54,
+              ),
+              onChanged: (value) {
+                setSheetState(() => enabled = value);
+                _setAiSubtitlesEnabled(value);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.translate_rounded),
+              title: const Text('Target language'),
+              subtitle: Text(language),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => _showAiLanguagePicker(language, (value) {
+                setSheetState(() => language = value);
+                _setAiSubtitleLanguage(value);
+              }),
+            ),
+          ];
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .85,
+            ),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AI Live Subtitles',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Opt in to transcribe short audio windows and translate spoken dialogue.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .68),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (landscape)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: controls
+                          .map(
+                            (child) => Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                ),
+                                child: child,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    )
+                  else
+                    ...controls,
+                  const SizedBox(height: 13),
+                  Row(
+                    children: [
+                      const Icon(Icons.format_size_rounded, size: 20),
+                      const SizedBox(width: 10),
+                      const Text('Caption size'),
+                      Expanded(
+                        child: Slider(
+                          min: .8,
+                          max: 1.8,
+                          divisions: 5,
+                          value: fontScale,
+                          label: '${(fontScale * 100).round()}%',
+                          onChanged: (value) {
+                            setSheetState(() => fontScale = value);
+                            _setAiSubtitleFontScale(value);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showAiLanguagePicker(
+    String currentLanguage,
+    ValueChanged<String> onSelected,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) {
+        final landscape =
+            MediaQuery.orientationOf(context) == Orientation.landscape;
+        final height = MediaQuery.sizeOf(context).height;
+        final languages = AiSubtitlePreferences.languages;
+        return ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: height * .85),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'AI Live Subtitles',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                const Text(
+                  'Target language',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  'Opt in to transcribe short audio windows and translate spoken dialogue.',
-                  style: TextStyle(color: Colors.white.withValues(alpha: .68)),
-                ),
-                const SizedBox(height: 14),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: enabled,
-                  title: const Text('AI CC'),
-                  subtitle: const Text('Off by default on fresh installs'),
-                  secondary: Icon(
-                    enabled
-                        ? Icons.closed_caption_rounded
-                        : Icons.closed_caption_disabled_rounded,
-                    color: enabled ? NovaColors.cyan : Colors.white54,
-                  ),
-                  onChanged: (value) {
-                    setSheetState(() => enabled = value);
-                    _setAiSubtitlesEnabled(value);
-                  },
-                ),
-                const SizedBox(height: 6),
-                DropdownButtonFormField<String>(
-                  initialValue: language,
-                  decoration: const InputDecoration(
-                    labelText: 'Target language',
-                    prefixIcon: Icon(Icons.translate_rounded),
-                  ),
-                  items: AiSubtitlePreferences.languages
-                      .map(
-                        (item) => DropdownMenuItem(
-                          value: item.label,
-                          child: Text(item.label),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: landscape
+                      ? GridView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisExtent: 54,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 4,
+                              ),
+                          itemCount: languages.length,
+                          itemBuilder: (_, index) => _languageTile(
+                            languages[index],
+                            currentLanguage,
+                            onSelected,
+                          ),
+                        )
+                      : ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          itemCount: languages.length,
+                          itemBuilder: (_, index) => _languageTile(
+                            languages[index],
+                            currentLanguage,
+                            onSelected,
+                          ),
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setSheetState(() => language = value);
-                    _setAiSubtitleLanguage(value);
-                  },
-                ),
-                const SizedBox(height: 13),
-                Row(
-                  children: [
-                    const Icon(Icons.format_size_rounded, size: 20),
-                    const SizedBox(width: 10),
-                    const Text('Caption size'),
-                    Expanded(
-                      child: Slider(
-                        min: .8,
-                        max: 1.8,
-                        divisions: 5,
-                        value: fontScale,
-                        label: '${(fontScale * 100).round()}%',
-                        onChanged: (value) {
-                          setSheetState(() => fontScale = value);
-                          _setAiSubtitleFontScale(value);
-                        },
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
           ),
-        ),
+        );
+      },
+    );
+  }
+
+  Widget _languageTile(
+    AiSubtitleLanguage language,
+    String currentLanguage,
+    ValueChanged<String> onSelected,
+  ) {
+    final selected = language.label == currentLanguage;
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_off,
+        color: selected ? NovaColors.cyan : Colors.white54,
       ),
+      title: Text(language.label),
+      onTap: () {
+        onSelected(language.label);
+        Navigator.pop(context);
+      },
     );
   }
 
@@ -734,6 +841,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       context: context,
       backgroundColor: NovaColors.surface,
       showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => _PlayerOptions(
         player: player,
         onSubtitle: _showEmbeddedSubtitleTracks,
@@ -747,80 +856,121 @@ class _PlayerScreenState extends State<PlayerScreen> {
       context: context,
       backgroundColor: NovaColors.surface,
       showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-          shrinkWrap: true,
-          children: [
-            const Text(
-              'Subtitle tracks',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        final landscape =
+            MediaQuery.orientationOf(sheetContext) == Orientation.landscape;
+        final trackTiles = <Widget>[
+          ListTile(
+            dense: landscape,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            leading: const Icon(
+              Icons.subtitles_off_rounded,
+              color: NovaColors.cyan,
             ),
-            const SizedBox(height: 6),
-            const Text(
-              'Choose an embedded language or turn subtitles off. Changes apply immediately.',
-              style: TextStyle(color: NovaColors.muted),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
+            title: const Text('None / Turn Off Subtitles'),
+            subtitle: const Text('Hide embedded subtitle output'),
+            onTap: () async {
+              await player.setSubtitleTrack(SubtitleTrack.no());
+              if (!sheetContext.mounted) return;
+              Navigator.pop(sheetContext);
+              _showHud('Subtitles off', Icons.subtitles_off_rounded);
+            },
+          ),
+        ];
+        trackTiles.addAll(
+          tracks.asMap().entries.map(
+            (entry) => ListTile(
+              dense: landscape,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
               leading: const Icon(
-                Icons.subtitles_off_rounded,
-                color: NovaColors.cyan,
+                Icons.subtitles_rounded,
+                color: NovaColors.violet,
               ),
-              title: const Text('None / Turn Off Subtitles'),
-              subtitle: const Text('Hide all embedded subtitle output'),
+              title: Text(_subtitleTrackLabel(entry.value)),
+              subtitle: Text(
+                entry.value.codec == null
+                    ? 'Embedded track ${entry.key + 1}'
+                    : 'Embedded · ${entry.value.codec}',
+              ),
               onTap: () async {
-                await player.setSubtitleTrack(SubtitleTrack.no());
-                if (!mounted) return;
-                Navigator.pop(context);
-                _showHud('Subtitles off', Icons.subtitles_off_rounded);
+                await player.setSubtitleTrack(entry.value);
+                if (!sheetContext.mounted) return;
+                Navigator.pop(sheetContext);
+                _showHud(
+                  '${_subtitleTrackLabel(entry.value)} selected',
+                  Icons.subtitles_rounded,
+                );
               },
             ),
-            const Divider(height: 14),
-            if (tracks.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 18),
-                child: Text('No embedded subtitle tracks found.'),
-              )
-            else
-              ...tracks.asMap().entries.map(
-                (entry) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(
-                    Icons.subtitles_rounded,
-                    color: NovaColors.violet,
-                  ),
-                  title: Text(_subtitleTrackLabel(entry.value)),
-                  subtitle: Text(
-                    entry.value.codec == null
-                        ? 'Embedded subtitle track ${entry.key + 1}'
-                        : 'Embedded · ${entry.value.codec}',
-                  ),
-                  onTap: () async {
-                    await player.setSubtitleTrack(entry.value);
-                    if (!mounted) return;
-                    Navigator.pop(context);
-                    _showHud(
-                      '${_subtitleTrackLabel(entry.value)} selected',
-                      Icons.subtitles_rounded,
-                    );
-                  },
+          ),
+        );
+        if (tracks.isEmpty) {
+          trackTiles.add(
+            const ListTile(
+              dense: true,
+              title: Text('No embedded subtitle tracks found.'),
+            ),
+          );
+        }
+        trackTiles.add(
+          ListTile(
+            dense: landscape,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            leading: const Icon(Icons.file_open_rounded),
+            title: const Text('Load external subtitle file'),
+            onTap: () async {
+              Navigator.pop(sheetContext);
+              await _pickSubtitle();
+            },
+          ),
+        );
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * .85,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Subtitle tracks',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                 ),
-              ),
-            const Divider(height: 20),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.file_open_rounded),
-              title: const Text('Load external subtitle file'),
-              onTap: () async {
-                Navigator.pop(context);
-                await _pickSubtitle();
-              },
+                const SizedBox(height: 6),
+                const Text(
+                  'Choose an embedded language or turn subtitles off. Changes apply immediately.',
+                  style: TextStyle(color: NovaColors.muted),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: landscape
+                      ? GridView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisExtent: 68,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 4,
+                              ),
+                          itemCount: trackTiles.length,
+                          itemBuilder: (_, index) => trackTiles[index],
+                        )
+                      : ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          itemCount: trackTiles.length,
+                          itemBuilder: (_, index) => trackTiles[index],
+                        ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -1333,91 +1483,120 @@ class _PlayerOptions extends StatelessWidget {
   final Player player;
   final VoidCallback onSubtitle;
   @override
-  Widget build(BuildContext context) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Playback controls',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 18),
-          const Text(
-            'Speed',
-            style: TextStyle(
-              color: NovaColors.muted,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 9),
-          Wrap(
-            spacing: 7,
-            children: [.25, .5, .75, 1.0, 1.25, 1.5, 2.0, 3.0]
-                .map(
-                  (speed) => ActionChip(
-                    label: Text('${speed}x'),
-                    onPressed: () {
-                      player.setRate(speed);
-                      Navigator.pop(context);
-                    },
-                  ),
-                )
-                .toList(),
-          ),
-          const SizedBox(height: 18),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(
-              Icons.audiotrack_rounded,
-              color: NovaColors.cyan,
-            ),
-            title: const Text('Audio track'),
-            subtitle: Text(
-              '${player.state.tracks.audio.length} embedded tracks found',
-            ),
-            onTap: () => _showAudioTracks(context),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(
-              Icons.subtitles_outlined,
-              color: NovaColors.violet,
-            ),
-            title: const Text('Subtitles'),
-            subtitle: Text(
-              '${player.state.tracks.subtitle.length} embedded tracks found',
-            ),
-            onTap: onSubtitle,
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(
-              Icons.aspect_ratio_rounded,
-              color: NovaColors.green,
-            ),
-            title: const Text('Aspect ratio'),
-            subtitle: const Text('Fit  •  Fill  •  Stretch'),
-            onTap: () => Navigator.pop(context),
-          ),
-        ],
+  Widget build(BuildContext context) {
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final actions = <Widget>[
+      ListTile(
+        dense: landscape,
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.audiotrack_rounded, color: NovaColors.cyan),
+        title: const Text('Audio track'),
+        subtitle: Text(
+          '${player.state.tracks.audio.length} embedded tracks found',
+        ),
+        onTap: () => _showAudioTracks(context),
       ),
-    ),
-  );
+      ListTile(
+        dense: landscape,
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.subtitles_outlined, color: NovaColors.violet),
+        title: const Text('Subtitles'),
+        subtitle: Text(
+          '${player.state.tracks.subtitle.length} embedded tracks found',
+        ),
+        onTap: onSubtitle,
+      ),
+      ListTile(
+        dense: landscape,
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(
+          Icons.aspect_ratio_rounded,
+          color: NovaColors.green,
+        ),
+        title: const Text('Aspect ratio'),
+        subtitle: const Text('Fit  •  Fill  •  Stretch'),
+        onTap: () => Navigator.pop(context),
+      ),
+    ];
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .85,
+      ),
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Playback controls',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Speed',
+              style: TextStyle(
+                color: NovaColors.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Wrap(
+              spacing: 7,
+              runSpacing: 2,
+              children: [.25, .5, .75, 1.0, 1.25, 1.5, 2.0, 3.0]
+                  .map(
+                    (speed) => ActionChip(
+                      label: Text('${speed}x'),
+                      onPressed: () {
+                        player.setRate(speed);
+                        Navigator.pop(context);
+                      },
+                    ),
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 10),
+            if (landscape)
+              GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisExtent: 64,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 4,
+                ),
+                itemCount: actions.length,
+                itemBuilder: (_, index) => actions[index],
+              )
+            else
+              ...actions,
+          ],
+        ),
+      ),
+    );
+  }
 
   void _showAudioTracks(BuildContext context) {
     final tracks = player.state.tracks.audio;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: NovaColors.surface,
-      builder: (_) => SafeArea(
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .85,
+        ),
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(20),
-          shrinkWrap: true,
           children: [
             const Text(
               'Audio tracks',
