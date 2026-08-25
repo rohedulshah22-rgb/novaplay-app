@@ -1044,16 +1044,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
                   if (!visible) return const SizedBox.shrink();
                   return Positioned(
-                    left: 20,
-                    right: 20,
-                    bottom: orientation == Orientation.landscape ? 64 : 84,
+                    left: 12,
+                    right: 12,
+                    bottom: 24,
                     child: SafeArea(
-                      child: _AiCaptionPill(
-                        text: caption.text,
-                        fontScale: aiSubtitleFontScale,
-                        language: aiSubtitlesEnabled
-                            ? aiSubtitleLanguage
-                            : 'Original',
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        reverseDuration: const Duration(milliseconds: 140),
+                        switchInCurve: Curves.easeOut,
+                        switchOutCurve: Curves.easeIn,
+                        child: _AiCaptionPill(
+                          key: ValueKey(caption.text),
+                          text: caption.text,
+                          fontScale: aiSubtitleFontScale,
+                        ),
                       ),
                     ),
                   );
@@ -1693,14 +1697,13 @@ class _QueueNavigationIndicator extends StatelessWidget {
 
 class _AiCaptionPill extends StatelessWidget {
   const _AiCaptionPill({
+    super.key,
     required this.text,
     required this.fontScale,
-    required this.language,
   });
 
   final String text;
   final double fontScale;
-  final String language;
 
   @override
   Widget build(BuildContext context) {
@@ -1709,40 +1712,28 @@ class _AiCaptionPill extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 760),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: .82),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: .24)),
-            boxShadow: const [
-              BoxShadow(color: Colors.black54, blurRadius: 12, spreadRadius: 2),
-            ],
+            color: Colors.black.withValues(alpha: .45),
+            borderRadius: BorderRadius.circular(4),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(15, 9, 15, 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 17 * fontScale,
-                    height: 1.22,
-                    fontWeight: FontWeight.w800,
-                    shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'AI CC · $language',
-                  style: TextStyle(
-                    color: NovaColors.cyan.withValues(alpha: .86),
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .7,
-                  ),
-                ),
-              ],
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Text(
+              text,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18 * fontScale,
+                height: 1.18,
+                fontWeight: FontWeight.w600,
+                shadows: const [
+                  Shadow(offset: Offset(-1.4, 0), color: Colors.black),
+                  Shadow(offset: Offset(1.4, 0), color: Colors.black),
+                  Shadow(offset: Offset(0, -1.4), color: Colors.black),
+                  Shadow(offset: Offset(0, 1.4), color: Colors.black),
+                ],
+              ),
             ),
           ),
         ),
