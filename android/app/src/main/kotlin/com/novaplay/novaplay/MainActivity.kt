@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.BatteryManager
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Rational
@@ -38,6 +39,7 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mediaChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getPermissionState" -> result.success(permissionState())
+                "getDeviceStatus" -> result.success(deviceStatus())
                 "requestMediaPermission" -> requestMediaPermission(result)
                 "openAppSettings" -> openAppSettings(result)
                 "queryVideos" -> queryVideos(result)
@@ -56,6 +58,12 @@ class MainActivity : FlutterFragmentActivity() {
         } else {
             result.error("UNSUPPORTED", "Picture-in-Picture requires Android 8.0 or newer", null)
         }
+    }
+
+    private fun deviceStatus(): Map<String, Any> {
+        val manager = getSystemService(BATTERY_SERVICE) as? BatteryManager
+        val battery = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        return mapOf("batteryPercent" to battery.coerceIn(0, 100))
     }
 
     private fun permissionState(): Map<String, Any> {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -26,6 +27,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late final Player player;
   late final VideoController controller;
   Timer? _hideTimer;
+  Timer? _statusTimer;
+  StreamSubscription<AccelerometerEvent>? _sensorSubscription;
   bool controlsVisible = true;
   bool locked = false;
   bool _hudVisible = false;
@@ -39,6 +42,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _startVolume = .55;
   bool dialogueEnhancer = false;
   bool captureBusy = false;
+  bool orientationLocked = false;
+  bool landscapeLocked = false;
+  String aspectMode = 'Fit';
+  double zoom = 1.0;
+  double _baseZoom = 1.0;
+  int batteryPercent = 0;
+  String systemTime = '';
   final captureService = const CaptureService();
 
   @override
@@ -48,7 +58,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     controller = VideoController(player);
     player.open(Media(widget.file.path), play: true);
     WakelockPlus.enable();
+    _enableAutoOrientation();
     _loadSystemLevels();
+    _loadDeviceStatus();
+    _statusTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _loadDeviceStatus(),
+    );
+    _sensorSubscription = accelerometerEventStream().listen(
+      _onAccelerometerEvent,
+    );
     _armControlsTimer();
   }
 
@@ -60,10 +79,140 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } catch (_) {}
   }
 
+  Future<void> _loadDeviceStatus() async {
+    try {
+      final status = await const MethodChannel(
+        'com.novaplay/media',
+      ).invokeMethod<Map<dynamic, dynamic>>('getDeviceStatus');
+      if (!mounted) return;
+      final now = DateTime.now();
+      setState(() {
+        batteryPercent =
+            (status?['batteryPercent'] as num?)?.toInt() ?? batteryPercent;
+        systemTime =
+            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      });
+    } on PlatformException {
+      if (mounted) {
+        final now = DateTime.now();
+        setState(
+          () => systemTime =
+              '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+        );
+      }
+    }
+  }
+
+  void _enableAutoOrientation() {
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  DeviceOrientation? _lastSensorOrientation;
+  DateTime _lastOrientationChange = DateTime.fromMillisecondsSinceEpoch(0);
+
+  void _onAccelerometerEvent(AccelerometerEvent event) {
+    if (orientationLocked) return;
+    final now = DateTime.now();
+    if (now.difference(_lastOrientationChange) <
+        const Duration(milliseconds: 700)) {
+      return;
+    }
+    DeviceOrientation? next;
+    if (event.x.abs() > 7 && event.x.abs() > event.y.abs()) {
+      next = event.x > 0
+          ? DeviceOrientation.landscapeLeft
+          : DeviceOrientation.landscapeRight;
+    } else if (event.y.abs() > 7 && event.y.abs() > event.x.abs()) {
+      next = DeviceOrientation.portraitUp;
+    }
+    if (next == null || next == _lastSensorOrientation) return;
+    _lastSensorOrientation = next;
+    _applyOrientation(next);
+  }
+
+  Future<void> _applyOrientation(DeviceOrientation orientation) async {
+    _lastOrientationChange = DateTime.now();
+    final landscape =
+        orientation == DeviceOrientation.landscapeLeft ||
+        orientation == DeviceOrientation.landscapeRight;
+    await SystemChrome.setPreferredOrientations([orientation]);
+    await SystemChrome.setEnabledSystemUIMode(
+      landscape ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleManualOrientation() async {
+    orientationLocked = true;
+    landscapeLocked = !landscapeLocked;
+    await _applyOrientation(
+      landscapeLocked
+          ? DeviceOrientation.landscapeLeft
+          : DeviceOrientation.portraitUp,
+    );
+    _showHud(
+      landscapeLocked ? 'Landscape locked' : 'Portrait locked',
+      Icons.screen_lock_rotation_rounded,
+    );
+  }
+
+  void _cycleAspectRatio() {
+    const modes = ['Fit', 'Fill', '16:9', 'Stretch', 'Original'];
+    final next = (modes.indexOf(aspectMode) + 1) % modes.length;
+    setState(() => aspectMode = modes[next]);
+    _showHud(aspectMode, Icons.aspect_ratio_rounded);
+  }
+
+  BoxFit get _videoFit => switch (aspectMode) {
+    'Fill' => BoxFit.cover,
+    'Stretch' => BoxFit.fill,
+    _ => BoxFit.contain,
+  };
+
+  double? get _videoAspectRatio => aspectMode == '16:9' ? 16 / 9 : null;
+
+  void _onScaleStart(ScaleStartDetails details) {
+    _baseZoom = zoom;
+    _gestureStart = details.localFocalPoint;
+    _startBrightness = _brightness;
+    _startVolume = _volume;
+    _seekPreview = null;
+    _hideTimer?.cancel();
+  }
+
+  void _onScaleUpdate(ScaleUpdateDetails details, Size size) {
+    if (details.pointerCount > 1 || (details.scale - 1).abs() > .02) {
+      setState(() => zoom = (_baseZoom * details.scale).clamp(.85, 2.4));
+      _hideTimer?.cancel();
+      return;
+    }
+    _onPanUpdate(
+      DragUpdateDetails(
+        globalPosition: details.focalPoint,
+        localPosition: details.localFocalPoint,
+        delta: details.focalPointDelta,
+      ),
+      size,
+    );
+  }
+
+  void _onScaleEnd(ScaleEndDetails details) {
+    _finishGesture();
+  }
+
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _statusTimer?.cancel();
+    _sensorSubscription?.cancel();
     WakelockPlus.disable();
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     player.dispose();
     super.dispose();
   }
@@ -110,14 +259,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  void _onPanStart(DragStartDetails details) {
-    _gestureStart = details.localPosition;
-    _startBrightness = _brightness;
-    _startVolume = _volume;
-    _seekPreview = null;
-    _hideTimer?.cancel();
-  }
-
   void _onPanUpdate(DragUpdateDetails details, Size size) {
     final start = _gestureStart;
     if (start == null) return;
@@ -134,7 +275,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _onPanEnd(DragEndDetails details) async {
+  Future<void> _finishGesture() async {
     if (_seekPreview != null) {
       final duration = player.state.duration;
       final position = _seekPreview!.inMilliseconds.clamp(
@@ -235,19 +376,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
           return Stack(
             children: [
               Center(
-                child: Video(controller: controller, controls: NoVideoControls),
+                child: ClipRect(
+                  child: Transform.scale(
+                    scale: zoom,
+                    child: Video(
+                      controller: controller,
+                      fit: _videoFit,
+                      aspectRatio: _videoAspectRatio,
+                      controls: NoVideoControls,
+                    ),
+                  ),
+                ),
               ),
               GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: _toggleControls,
                 onDoubleTapDown: (details) => _doubleTap(details, size),
-                onPanStart: _onPanStart,
-                onPanUpdate: (details) => _onPanUpdate(details, size),
-                onPanEnd: _onPanEnd,
+                onScaleStart: _onScaleStart,
+                onScaleUpdate: (details) => _onScaleUpdate(details, size),
+                onScaleEnd: _onScaleEnd,
                 child: const SizedBox.expand(),
               ),
               if (_seekPreview != null)
                 Center(child: _SeekPreview(position: _seekPreview!)),
+              if (orientation == Orientation.landscape && systemTime.isNotEmpty)
+                Positioned(
+                  top: 10,
+                  right: 16,
+                  child: SafeArea(
+                    child: _DeviceStatusPill(
+                      batteryPercent: batteryPercent,
+                      systemTime: systemTime,
+                    ),
+                  ),
+                ),
               if (_hudVisible)
                 Center(
                   child: _Hud(icon: _hudIcon, label: _hudLabel),
@@ -283,6 +445,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onGif: _captureGif,
                     dialogueEnhancerEnabled: dialogueEnhancer,
                     onDialogueEnhancer: _toggleDialogueEnhancer,
+                    onOrientation: _toggleManualOrientation,
+                    onAspectRatio: _cycleAspectRatio,
+                    orientationLocked: orientationLocked,
+                    landscapeLocked: landscapeLocked,
+                    aspectMode: aspectMode,
                     onInteract: _armControlsTimer,
                   ),
                 ),
@@ -337,6 +504,11 @@ class _ControlsOverlay extends StatelessWidget {
     required this.onGif,
     required this.dialogueEnhancerEnabled,
     required this.onDialogueEnhancer,
+    required this.onOrientation,
+    required this.onAspectRatio,
+    required this.orientationLocked,
+    required this.landscapeLocked,
+    required this.aspectMode,
     required this.onInteract,
   });
   final VideoFile file;
@@ -349,6 +521,11 @@ class _ControlsOverlay extends StatelessWidget {
   final VoidCallback onGif;
   final bool dialogueEnhancerEnabled;
   final VoidCallback onDialogueEnhancer;
+  final VoidCallback onOrientation;
+  final VoidCallback onAspectRatio;
+  final bool orientationLocked;
+  final bool landscapeLocked;
+  final String aspectMode;
   final VoidCallback onInteract;
 
   @override
@@ -462,6 +639,11 @@ class _ControlsOverlay extends StatelessWidget {
                       onPressed: onGif,
                       icon: const Icon(Icons.gif_box_outlined),
                     ),
+                    IconButton(
+                      tooltip: 'Cycle aspect ratio',
+                      onPressed: onAspectRatio,
+                      icon: const Icon(Icons.aspect_ratio_rounded),
+                    ),
                     const Spacer(),
                     Text(
                       dialogueEnhancerEnabled
@@ -480,6 +662,29 @@ class _ControlsOverlay extends StatelessWidget {
               ),
               Row(
                 children: [
+                  IconButton(
+                    tooltip: orientationLocked
+                        ? (landscapeLocked
+                              ? 'Switch to portrait'
+                              : 'Switch to landscape')
+                        : 'Lock orientation',
+                    onPressed: onOrientation,
+                    icon: Icon(
+                      landscapeLocked
+                          ? Icons.screen_lock_landscape_rounded
+                          : Icons.screen_lock_portrait_rounded,
+                      color: orientationLocked ? NovaColors.cyan : Colors.white,
+                    ),
+                  ),
+                  Text(
+                    aspectMode,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: .72),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   IconButton(
                     onPressed: onLock,
                     icon: const Icon(Icons.lock_outline_rounded),
@@ -501,6 +706,50 @@ class _ControlsOverlay extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeviceStatusPill extends StatelessWidget {
+  const _DeviceStatusPill({
+    required this.batteryPercent,
+    required this.systemTime,
+  });
+  final int batteryPercent;
+  final String systemTime;
+
+  @override
+  Widget build(BuildContext context) {
+    final batteryIcon = batteryPercent <= 20
+        ? Icons.battery_alert_rounded
+        : batteryPercent >= 80
+        ? Icons.battery_full_rounded
+        : Icons.battery_5_bar_rounded;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: .62),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(batteryIcon, color: NovaColors.cyan, size: 15),
+            const SizedBox(width: 4),
+            Text(
+              '$batteryPercent%',
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 9),
+            Text(
+              systemTime,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+          ],
         ),
       ),
     );

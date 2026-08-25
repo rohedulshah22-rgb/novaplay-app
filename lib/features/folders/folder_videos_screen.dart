@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
+import '../media/domain/natural_sort.dart';
 import '../media/domain/video_file.dart';
+import 'folder_view_preferences.dart';
 import '../media/presentation/video_card.dart';
 import '../player/player_screen.dart';
 
@@ -22,9 +24,33 @@ class FolderVideosScreen extends StatefulWidget {
 
 class _FolderVideosScreenState extends State<FolderVideosScreen> {
   bool isGrid = true;
-  String sort = 'Recent';
+  String sort = 'Name (A–Z)';
   String duration = 'All';
   String resolution = 'All';
+
+  @override
+  void initState() {
+    super.initState();
+    _restorePreferences();
+  }
+
+  Future<void> _restorePreferences() async {
+    final preferences = await FolderViewPreferences.load();
+    if (!mounted) return;
+    setState(() {
+      sort = preferences.sort;
+      duration = preferences.duration;
+      resolution = preferences.resolution;
+      isGrid = preferences.isGrid;
+    });
+  }
+
+  Future<void> _savePreferences() => FolderViewPreferences.save(
+    sort: sort,
+    duration: duration,
+    resolution: resolution,
+    isGrid: isGrid,
+  );
 
   List<VideoFile> get visibleVideos {
     final filtered = widget.videos.where((file) {
@@ -45,7 +71,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
 
     filtered.sort((a, b) {
       return switch (sort) {
-        'Name' => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        'Name (A–Z)' => NaturalSort.compareVideos(a, b),
         'Largest' => b.sizeBytes.compareTo(a.sizeBytes),
         _ => b.modifiedAt.compareTo(a.modifiedAt),
       };
@@ -105,7 +131,10 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
             icon: const Icon(Icons.tune_rounded),
           ),
           IconButton(
-            onPressed: () => setState(() => isGrid = !isGrid),
+            onPressed: () {
+              setState(() => isGrid = !isGrid);
+              _savePreferences();
+            },
             icon: Icon(
               isGrid ? Icons.view_agenda_outlined : Icons.grid_view_rounded,
             ),
@@ -138,7 +167,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        '${formatBytes(widget.folder.sizeBytes)}  •  ${sort == 'Recent' ? 'Newest first' : sort}',
+                        '${formatBytes(widget.folder.sizeBytes)}  •  ${sort == 'Name (A–Z)' ? 'Natural episode order' : sort}',
                         style: const TextStyle(
                           color: NovaColors.muted,
                           fontSize: 11,
@@ -228,8 +257,9 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                _choiceRow(['Recent', 'Name', 'Largest'], sort, (value) {
+                _choiceRow(['Name (A–Z)', 'Recent', 'Largest'], sort, (value) {
                   setState(() => sort = value);
+                  _savePreferences();
                   setModalState(() {});
                 }),
                 const SizedBox(height: 16),
@@ -246,6 +276,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                   duration,
                   (value) {
                     setState(() => duration = value);
+                    _savePreferences();
                     setModalState(() {});
                   },
                 ),
@@ -260,6 +291,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                 const SizedBox(height: 8),
                 _choiceRow(['All', '4K', '1080p', '720p'], resolution, (value) {
                   setState(() => resolution = value);
+                  _savePreferences();
                   setModalState(() {});
                 }),
                 const SizedBox(height: 20),

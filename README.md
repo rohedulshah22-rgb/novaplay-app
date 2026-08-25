@@ -1,6 +1,6 @@
 # NovaPlay
 
-NovaPlay is a dark-first, offline Android video player built with Flutter. Current release: **1.0.1+2**. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
+NovaPlay is a dark-first, offline Android video player built with Flutter. Current release: **1.0.2+3**. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
 
 ## Included product surface
 
@@ -91,6 +91,10 @@ Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thum
 ## Playback notes
 
 MediaKit is initialized before `runApp`, and each player instance is disposed with the screen. The player uses the video package and native video libraries recommended by the MediaKit package documentation. Gesture behavior is implemented in the Flutter layer, while MediaKit provides codec/track/rate/seek primitives. External subtitles are loaded as a `SubtitleTrack.uri` after a native file pick. PiP is exposed through a small Android `MethodChannel`, guarded for Android versions below Oreo.
+
+Inside `PlayerScreen`, the player allows portrait and both landscape orientations, listens to accelerometer sensor events when orientation is not manually locked, switches landscape playback to immersive system UI, and restores portrait/edge-to-edge behavior on exit. The HUD includes a manual orientation lock button, aspect cycling across Fit, Fill, 16:9, Stretch, and Original, two-finger pinch zoom, and a fullscreen battery/time pill.
+
+Folder detail views default to natural A-to-Z ordering. `NaturalSort` recognizes S01E01, E01, Episode 1, and similar episode tokens before applying token-aware numeric comparison, so Episode 10 follows Episode 9 instead of sorting before it. Folder sort, duration filter, resolution filter, and grid/list preferences are persisted with `SharedPreferences`; Recent and Largest remain available from the view menu.
 
 The dialogue enhancer uses an MPV `af` filter chain through the native MediaKit backend. It reduces low-frequency impact rumble, lifts the vocal presence range around 1.4–3 kHz, and applies light compression. The filter is cleared when the toggle is disabled. This is a playback enhancement rather than a destructive transcode.
 
