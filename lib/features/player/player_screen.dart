@@ -22,8 +22,9 @@ import 'capture_service.dart';
 import 'precision_scrubber.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
-  const PlayerScreen({super.key, required this.file});
+  const PlayerScreen({super.key, required this.file, this.queue});
   final VideoFile file;
+  final List<VideoFile>? queue;
   @override
   ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
@@ -38,6 +39,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   StreamSubscription<AccelerometerEvent>? _sensorSubscription;
   StreamSubscription<List<String>>? _embeddedSubtitleSubscription;
   StreamSubscription<bool>? _playingSubscription;
+  StreamSubscription<bool>? _completionSubscription;
   bool controlsVisible = true;
   bool locked = false;
   bool _hudVisible = false;
@@ -79,10 +81,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _seekQueue = Future<void>.value();
   final resumeRepository = const MediaRepository();
   bool _resumeRestored = false;
+  late final List<VideoFile> _queue;
+  late int _queueIndex;
+  bool _queueTransitioning = false;
+  bool _playerDisposed = false;
+  Timer? _queueIndicatorTimer;
+  String? _queueIndicatorLabel;
+  int _queueIndicatorDirection = 1;
+
+  VideoFile get _currentFile => _queue[_queueIndex];
 
   @override
   void initState() {
     super.initState();
+    _queue = _resolveQueue();
+    _queueIndex = _queue.indexWhere((item) => item.id == widget.file.id);
+    if (_queueIndex < 0) _queueIndex = 0;
     player = Player(configuration: const PlayerConfiguration(pitch: true));
     controller = VideoController(player);
     _openMediaAndRestoreResume();
@@ -124,6 +138,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _playingSubscription = player.stream.playing.listen((playing) {
       if (!playing) _saveResumePosition();
     });
+    _completionSubscription = player.stream.completed.listen((completed) {
+      if (completed) _playQueueOffset(1, automatic: true);
+    });
     _resumeSaveTimer = Timer.periodic(
       const Duration(seconds: 2),
       (_) => _saveResumePosition(),
@@ -131,17 +148,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _armControlsTimer();
   }
 
+  List<VideoFile> _resolveQueue() {
+    final supplied = widget.queue;
+    final source = supplied == null || supplied.isEmpty
+        ? ref
+              .read(mediaLibraryProvider)
+              .files
+              .where((item) => item.folderName == widget.file.folderName)
+              .toList()
+        : supplied.toList();
+    final byId = <String, VideoFile>{for (final item in source) item.id: item};
+    byId[widget.file.id] = widget.file;
+    return byId.values.toList();
+  }
+
   Future<void> _openMediaAndRestoreResume() async {
-    await player.open(Media(widget.file.path), play: true);
+    final playlist = Playlist(
+      _queue.map((item) => Media(item.path)).toList(growable: false),
+      index: _queueIndex,
+    );
+    await player.open(playlist, play: true);
+    await player.setPlaylistMode(PlaylistMode.none);
     if (!mounted) return;
     // Keep the embedded track active so MediaKit can emit live subtitle cues.
+    await _restoreResumeForCurrent(showFeedback: true);
+  }
+
+  Future<void> _restoreResumeForCurrent({required bool showFeedback}) async {
+    _resumeRestored = false;
     final history = await resumeRepository.readPlaybackHistory();
-    final entry = history[widget.file.id];
-    final resume = entry?.position ?? widget.file.progress;
+    final entry = history[_currentFile.id];
+    final resume = entry?.position ?? _currentFile.progress;
     final duration = await _waitForMediaDuration();
     final effectiveDuration = duration > Duration.zero
         ? duration
-        : entry?.totalDuration ?? widget.file.duration;
+        : entry?.totalDuration ?? _currentFile.duration;
     if (resume <= const Duration(seconds: 5) ||
         (effectiveDuration > Duration.zero &&
             resume.inMilliseconds * 100 >=
@@ -157,7 +198,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     await Future<void>.delayed(const Duration(milliseconds: 150));
     await player.play();
     _resumeRestored = true;
-    if (!mounted) return;
+    if (!mounted || !showFeedback) return;
     final label = formatResumeTime(resume);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -188,6 +229,75 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
+  void _resetCurrentItemSubtitleState() {
+    _embeddedSubtitleText = null;
+    _lastSubtitleCueText = null;
+    _hasReceivedSubtitleCue = false;
+    _activeCaption = null;
+    _subtitleRequestInFlight = false;
+  }
+
+  Future<void> _playQueueOffset(int offset, {bool automatic = false}) async {
+    if (_queueTransitioning) return;
+    _armControlsTimer();
+    final nextIndex = _queueIndex + offset;
+    if (nextIndex < 0 || nextIndex >= _queue.length) {
+      if (!automatic) {
+        _showHud(
+          offset > 0 ? 'End of folder' : 'Beginning of folder',
+          Icons.info_outline_rounded,
+        );
+      }
+      return;
+    }
+    _queueTransitioning = true;
+    try {
+      await _saveResumePosition();
+      final direction = offset > 0 ? 1 : -1;
+      _showQueueIndicator(direction);
+      _queueIndex = nextIndex;
+      _resetCurrentItemSubtitleState();
+      if (mounted) setState(() {});
+      await player.jump(nextIndex);
+      await _restoreResumeForCurrent(showFeedback: false);
+    } finally {
+      _queueTransitioning = false;
+    }
+  }
+
+  void _showQueueIndicator(int direction) {
+    final targetIndex = _queueIndex + direction;
+    if (targetIndex < 0 || targetIndex >= _queue.length) return;
+    final title = _queue[targetIndex].name;
+    _queueIndicatorTimer?.cancel();
+    setState(() {
+      _queueIndicatorDirection = direction;
+      _queueIndicatorLabel = '${direction > 0 ? 'Next' : 'Previous'}: $title';
+    });
+    _queueIndicatorTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) setState(() => _queueIndicatorLabel = null);
+    });
+  }
+
+  Future<void> _stopAndClose() async {
+    await _saveResumePosition(updateLibrary: false);
+    _resumeRestored = false;
+    await player.stop();
+    await _releasePlayerResources();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _releasePlayerResources() async {
+    if (_playerDisposed) return;
+    _playerDisposed = true;
+    try {
+      await player.pause();
+    } catch (_) {}
+    try {
+      await player.dispose();
+    } catch (_) {}
+  }
+
   Future<void> _restartFromBeginning() async {
     await player.seek(Duration.zero);
     await _saveResumePosition();
@@ -200,14 +310,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (duration <= Duration.zero && position <= Duration.zero) return;
     final totalDuration = duration > Duration.zero
         ? duration
-        : widget.file.duration;
+        : _currentFile.duration;
     if (updateLibrary && mounted) {
       await ref
           .read(mediaLibraryProvider.notifier)
-          .saveProgress(widget.file, position, totalDuration: totalDuration);
+          .saveProgress(_currentFile, position, totalDuration: totalDuration);
     } else {
       await resumeRepository.savePlaybackPosition(
-        id: widget.file.id,
+        id: _currentFile.id,
         position: position,
         totalDuration: totalDuration,
       );
@@ -344,7 +454,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _subtitleRequestInFlight = true;
     try {
       final result = await aiSubtitleService.recognizeAndTranslate(
-        sourcePath: widget.file.path,
+        sourcePath: _currentFile.path,
         position: player.state.position,
         language: _selectedSubtitleLanguage,
         sourceText: _embeddedSubtitleText,
@@ -642,6 +752,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _startBrightness = _brightness;
     _startVolume = _volume;
     _seekPreview = null;
+    _swipeDirection = null;
     _hideTimer?.cancel();
   }
 
@@ -676,13 +787,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _sensorSubscription?.cancel();
     _embeddedSubtitleSubscription?.cancel();
     _playingSubscription?.cancel();
+    _completionSubscription?.cancel();
+    _queueIndicatorTimer?.cancel();
     _saveResumePosition(updateLibrary: false);
     aiSubtitleService.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    player.pause();
-    player.dispose();
+    unawaited(_releasePlayerResources());
     super.dispose();
   }
 
@@ -735,9 +847,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final dx = details.localPosition.dx - start.dx;
     final dy = details.localPosition.dy - start.dy;
     if (dx.abs() > dy.abs()) {
-      final current = player.state.position;
-      final delta = Duration(milliseconds: (dx / size.width * 90000).round());
-      setState(() => _seekPreview = current + delta);
+      final swipeThreshold = size.width * .16;
+      if (dx.abs() >= swipeThreshold) {
+        _swipeDirection = dx < 0 ? 1 : -1;
+        _seekPreview = null;
+      } else {
+        final current = player.state.position;
+        final delta = Duration(milliseconds: (dx / size.width * 90000).round());
+        setState(() => _seekPreview = current + delta);
+      }
     } else if (start.dx < size.width / 2) {
       _updateBrightness(_startBrightness - dy / size.height);
     } else {
@@ -746,6 +864,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _finishGesture() async {
+    final swipeDirection = _swipeDirection;
+    _swipeDirection = null;
+    if (swipeDirection != null) {
+      await _playQueueOffset(swipeDirection);
+      _gestureStart = null;
+      _seekPreview = null;
+      return;
+    }
     if (_seekPreview != null) {
       final duration = player.state.duration;
       final position = _seekPreview!.inMilliseconds.clamp(
@@ -762,6 +888,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _seekPreview = null;
     _armControlsTimer();
   }
+
+  int? _swipeDirection;
 
   String _formatSeek(Duration position) =>
       '${position.isNegative ? '-' : '+'}${formatDuration(position.abs())}';
@@ -790,7 +918,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     setState(() => captureBusy = true);
     final saved = await captureService.saveSnapshot(
       player,
-      sourceName: widget.file.name,
+      sourceName: _currentFile.name,
     );
     if (mounted) {
       setState(() => captureBusy = false);
@@ -805,7 +933,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (captureBusy) return;
     setState(() => captureBusy = true);
     final saved = await captureService.exportGif(
-      sourcePath: widget.file.path,
+      sourcePath: _currentFile.path,
       start: player.state.position,
     );
     if (mounted) {
@@ -892,6 +1020,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     seconds: _seekIndicatorSeconds,
                   ),
                 ),
+              if (_queueIndicatorLabel != null)
+                Positioned(
+                  top: size.height * .22,
+                  left: _queueIndicatorDirection > 0 ? null : 20,
+                  right: _queueIndicatorDirection > 0 ? 20 : null,
+                  child: _QueueNavigationIndicator(
+                    key: ValueKey(_queueIndicatorLabel),
+                    label: _queueIndicatorLabel!,
+                    direction: _queueIndicatorDirection,
+                  ),
+                ),
               StreamBuilder<Duration>(
                 stream: player.stream.position,
                 initialData: player.state.position,
@@ -958,9 +1097,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       opacity: controlsVisible ? 1 : 0,
                       duration: const Duration(milliseconds: 200),
                       child: _ControlsOverlay(
-                        file: widget.file,
+                        file: _currentFile,
                         player: player,
                         onBack: () => Navigator.pop(context),
+                        onPrevious: () => _playQueueOffset(-1),
+                        onStop: _stopAndClose,
+                        onNext: () => _playQueueOffset(1),
                         onLock: () => setState(() {
                           locked = true;
                           controlsVisible = false;
@@ -1197,6 +1339,9 @@ class _ControlsOverlay extends StatelessWidget {
     required this.file,
     required this.player,
     required this.onBack,
+    required this.onPrevious,
+    required this.onStop,
+    required this.onNext,
     required this.onLock,
     required this.onMore,
     required this.onPip,
@@ -1216,6 +1361,9 @@ class _ControlsOverlay extends StatelessWidget {
   final VideoFile file;
   final Player player;
   final VoidCallback onBack;
+  final VoidCallback onPrevious;
+  final VoidCallback onStop;
+  final VoidCallback onNext;
   final VoidCallback onLock;
   final VoidCallback onMore;
   final VoidCallback onPip;
@@ -1284,19 +1432,64 @@ class _ControlsOverlay extends StatelessWidget {
               StreamBuilder<bool>(
                 stream: player.stream.playing,
                 initialData: player.state.playing,
-                builder: (context, snapshot) => IconButton(
-                  onPressed: () {
-                    player.playOrPause();
-                    onInteract();
-                  },
-                  iconSize: 64,
-                  icon: Icon(
-                    snapshot.data == true
-                        ? Icons.pause_circle_filled_rounded
-                        : Icons.play_circle_fill_rounded,
-                    color: Colors.white,
-                  ),
-                ),
+                builder: (context, snapshot) {
+                  final playing = snapshot.data == true;
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Previous video',
+                        onPressed: () {
+                          onPrevious();
+                          onInteract();
+                        },
+                        iconSize: 38,
+                        icon: const Icon(
+                          Icons.skip_previous_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Stop and close player',
+                        onPressed: () {
+                          onStop();
+                          onInteract();
+                        },
+                        iconSize: 38,
+                        icon: const Icon(
+                          Icons.stop_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: playing ? 'Pause' : 'Play',
+                        onPressed: () {
+                          player.playOrPause();
+                          onInteract();
+                        },
+                        iconSize: 64,
+                        icon: Icon(
+                          playing
+                              ? Icons.pause_circle_filled_rounded
+                              : Icons.play_circle_fill_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Next video',
+                        onPressed: () {
+                          onNext();
+                          onInteract();
+                        },
+                        iconSize: 38,
+                        icon: const Icon(
+                          Icons.skip_next_rounded,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               const Spacer(),
               StreamBuilder<Duration>(
@@ -1430,6 +1623,70 @@ class _ControlsOverlay extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _QueueNavigationIndicator extends StatelessWidget {
+  const _QueueNavigationIndicator({
+    super.key,
+    required this.label,
+    required this.direction,
+  });
+
+  final String label;
+  final int direction;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.86, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) => Transform.scale(
+        scale: scale,
+        alignment: direction > 0 ? Alignment.centerRight : Alignment.centerLeft,
+        child: child,
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: .82),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: NovaColors.cyan.withValues(alpha: .6)),
+          boxShadow: const [
+            BoxShadow(color: Colors.black54, blurRadius: 12, spreadRadius: 2),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                direction > 0
+                    ? Icons.skip_next_rounded
+                    : Icons.skip_previous_rounded,
+                color: NovaColors.cyan,
+                size: 20,
+              ),
+              const SizedBox(width: 7),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

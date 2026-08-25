@@ -9,7 +9,7 @@ NovaPlay is a dark-first, offline Android video player built with Flutter. Curre
 | Home | Resume-watching carousel, smart folder summaries, instant search, grid/list toggle, empty and permission states |
 | Library | Recursive local scan for MP4, MKV, AVI, WEBM, MOV, FLV, TS, M4V, 3GP, MPEG, and MPG |
 | Filtering | Duration chips and resolution chips, with search across filenames and folder names |
-| Playback | MediaKit/libmpv-backed video rendering, play/pause, instant single-tap HUD toggle, cumulative double-tap ±10-second seeking with animated side indicators, horizontal seek preview, left brightness swipe, right volume swipe, auto-hide controls, lock mode, speed presets from 0.25x to 3x |
+| Playback | MediaKit/libmpv-backed video rendering, centered Previous/Stop/Play-Pause/Next controls, folder-aware queue playback, automatic next-video advance, swipe-left/right navigation with animated title badges, instant single-tap HUD toggle, cumulative double-tap ±10-second seeking with animated side indicators, horizontal seek preview, left brightness swipe, right volume swipe, auto-hide controls, lock mode, and speed presets from 0.25x to 3x |
 | Dialogue Enhancer | One-tap HUD toggle that writes an MPV `af` chain with low-frequency reduction, vocal-band boosts, and compression for clearer dialogue |
 | AI Live Subtitles | Opt-in `AI CC` HUD control; extracts six-second audio windows locally, sends them to a configured Whisper-compatible relay or optional OpenAI build-time endpoint, translates to Bengali, Hindi, English, Spanish, Japanese, Korean, French, German, Arabic, Portuguese, or Chinese, and renders high-contrast captions |
 | Capture | One-tap high-resolution PNG snapshot via MediaKit and five-second animated GIF export via FFmpegKit, saved to named gallery albums |
@@ -93,7 +93,7 @@ Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thum
 
 ## Playback notes
 
-MediaKit is initialized before `runApp`, and each player instance is disposed with the screen. The player uses the video package and native video libraries recommended by the MediaKit package documentation. Gesture behavior is implemented in the Flutter layer, while MediaKit provides codec/track/rate/seek primitives. Embedded subtitles start explicitly disabled with `SubtitleTrack.no()` after media opens; the Subtitles sheet lists language metadata, offers `None / Turn Off Subtitles`, and switches tracks immediately without restarting playback. External subtitles are loaded as a `SubtitleTrack.uri` after a native file pick. PiP is exposed through a small Android `MethodChannel`, guarded for Android versions below Oreo.
+MediaKit is initialized before `runApp`, and each player instance is disposed with the screen. The player uses the video package and native video libraries recommended by the MediaKit package documentation. Gesture behavior is implemented in the Flutter layer, while MediaKit provides codec/track/rate/seek primitives. PlayerScreen opens a MediaKit `Playlist` from the current folder queue, keeps `PlaylistMode.none` so the queue stops after its last item, and advances to the next item on each completed media event. The center control row exposes Previous, Stop, Play/Pause, and Next; Stop saves the current history point, stops and disposes the player, then returns to the list. Embedded subtitle tracks remain available to emit live cues; the Subtitles sheet lists language metadata, offers `None / Turn Off Subtitles`, and switches tracks immediately without restarting playback. External subtitles are loaded as a `SubtitleTrack.uri` after a native file pick. PiP is exposed through a small Android `MethodChannel`, guarded for Android versions below Oreo.
 
 ### AI Live Subtitles and translation
 
@@ -111,7 +111,7 @@ Inside `PlayerScreen`, the player allows portrait and both landscape orientation
 
 NovaPlay persists playback history in `SharedPreferences` through `PlaybackHistoryEntry`, keyed by the media identifier. The player saves position, total duration, and last-played time every two seconds, on pause, and during route disposal. Positions beyond 95% of the known duration are marked finished and reset to zero so completed videos do not remain in the resume carousel. Existing legacy progress data is migrated when first read.
 
-When a video has a saved point beyond five seconds, it is sought automatically after opening and shows a lightweight `Resumed from HH:MM:SS` SnackBar with a `Restart` action. The Home header includes a History button that opens the most recently played resumable video directly. Resume cards and the History action are ordered by last-played time, while all video-list and folder entry points inherit the same PlayerScreen behavior.
+When a video has a saved point beyond five seconds, it is sought automatically after MediaKit duration initialization and shows a lightweight `Resumed from HH:MM:SS` SnackBar with a `Restart` action. The Home header includes a History button that opens the most recently played resumable video directly. Resume cards and the History action are ordered by last-played time, while all video-list and folder entry points inherit the same PlayerScreen behavior. Folder detail passes its active filtered and naturally sorted list into the PlayerScreen queue, and the player saves the current queue item before each explicit or automatic transition.
 
 Folder detail views default to natural A-to-Z ordering. `NaturalSort` recognizes S01E01, E01, Episode 1, and similar episode tokens before applying token-aware numeric comparison, so Episode 10 follows Episode 9 instead of sorting before it. Folder sort, duration filter, resolution filter, and grid/list preferences are persisted with `SharedPreferences`; Recent and Largest remain available from the view menu.
 
@@ -123,7 +123,7 @@ Capture actions are intentionally local-first: MediaKit’s native screenshot AP
 
 The Private Vault stores imported files under the app’s private support directory and creates `.nomedia` to prevent gallery indexing. Unlocking uses the device’s secure authentication surface; `local_auth` allows biometric authentication with device PIN/passcode/pattern fallback by default. The move workflow copies the chosen file into the vault and attempts to remove the original, while retaining the copy if a document provider disallows deletion.
 
-The current source is intentionally modular so the next production iteration can add MediaStore IDs, thumbnail disk caching, true background-media notification controls, playlist persistence, per-folder browsing routes, and richer media metadata without rewriting the visual shell.
+The current source is intentionally modular so the next production iteration can add richer playlist persistence, true background-media notification controls, and richer media metadata without rewriting the visual shell. The active folder queue and player-owned MediaKit lifecycle are already implemented in `PlayerScreen`.
 
 ## GitHub Actions
 

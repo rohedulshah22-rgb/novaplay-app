@@ -80,9 +80,12 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
   }
 
   void openPlayer(VideoFile file) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => PlayerScreen(file: file)));
+    final queue = visibleVideos;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(file: file, queue: queue),
+      ),
+    );
   }
 
   @override
