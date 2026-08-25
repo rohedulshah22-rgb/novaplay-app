@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../domain/playback_history.dart';
 import '../domain/video_file.dart';
 
 class PermissionSnapshot {
@@ -42,6 +43,7 @@ class MediaRepository {
 
   static const _mediaChannel = MethodChannel('com.novaplay/media');
   static const _progressKey = 'novaplay.media.progress.v2';
+  static const _historyKey = 'novaplay.media.playback-history.v1';
   static const _customDirectoriesKey = 'novaplay.media.custom-directories.v1';
 
   static const supportedExtensions = {
@@ -112,16 +114,18 @@ class MediaRepository {
         : const <Map<String, dynamic>>[];
     final customDirectories = await _readCustomDirectories();
     final customRows = await _scanCustomDirectories(customDirectories);
-    final progress = await _readProgress();
+    final history = await readPlaybackHistory();
     final merged = <String, VideoFile>{};
 
     for (final row in mediaStoreRows) {
-      final video = _videoFromMediaStore(row, progress);
+      final video = _videoFromMediaStore(row, history);
       if (video != null) merged[video.id] = video;
     }
     for (final video in customRows) {
+      final entry = history[video.id];
       merged[video.id] = video.copyWith(
-        progress: progress[video.id] ?? video.progress,
+        progress: entry?.position ?? video.progress,
+        lastPlayedAt: entry?.lastPlayedAt,
       );
     }
 
@@ -154,7 +158,7 @@ class MediaRepository {
 
   VideoFile? _videoFromMediaStore(
     Map<String, dynamic> row,
-    Map<String, Duration> progress,
+    Map<String, PlaybackHistoryEntry> history,
   ) {
     final id = row['id'] as String?;
     final name = row['name'] as String?;
@@ -175,7 +179,8 @@ class MediaRepository {
       ),
       width: (row['width'] as num?)?.toInt() ?? 0,
       height: (row['height'] as num?)?.toInt() ?? 0,
-      progress: progress[id] ?? Duration.zero,
+      progress: history[id]?.position ?? Duration.zero,
+      lastPlayedAt: history[id]?.lastPlayedAt,
       contentUri: uri,
       relativePath: row['relativePath'] as String?,
       mimeType: row['mimeType'] as String? ?? 'video/*',
@@ -234,15 +239,41 @@ class MediaRepository {
     await prefs.setStringList(_customDirectoriesKey, current.toList());
   }
 
-  Future<Map<String, Duration>> _readProgress() async {
+  Future<Map<String, PlaybackHistoryEntry>> readPlaybackHistory() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_progressKey);
-    if (raw == null) return {};
+    final raw = prefs.getString(_historyKey);
+    if (raw != null) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) {
+          return decoded.map((key, value) {
+            final json = value is Map
+                ? Map<String, dynamic>.from(value)
+                : <String, dynamic>{};
+            return MapEntry(key, PlaybackHistoryEntry.fromJson(key, json));
+          });
+        }
+      } catch (_) {
+        // Fall through to the legacy progress map.
+      }
+    }
+
+    final legacyRaw = prefs.getString(_progressKey);
+    if (legacyRaw == null) return {};
     try {
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      return map.map(
-        (key, value) =>
-            MapEntry(key, Duration(milliseconds: (value as num).toInt())),
+      final decoded = jsonDecode(legacyRaw);
+      if (decoded is! Map<String, dynamic>) return {};
+      final now = DateTime.now();
+      return decoded.map(
+        (key, value) => MapEntry(
+          key,
+          PlaybackHistoryEntry(
+            videoId: key,
+            position: Duration(milliseconds: (value as num).toInt()),
+            totalDuration: Duration.zero,
+            lastPlayedAt: now,
+          ),
+        ),
       );
     } catch (_) {
       return {};
@@ -250,15 +281,45 @@ class MediaRepository {
   }
 
   Future<void> saveProgress(String id, Duration progress) async {
-    final prefs = await SharedPreferences.getInstance();
-    final current = await _readProgress();
-    current[id] = progress;
-    await prefs.setString(
-      _progressKey,
-      jsonEncode(
-        current.map((key, value) => MapEntry(key, value.inMilliseconds)),
-      ),
+    await savePlaybackPosition(
+      id: id,
+      position: progress,
+      totalDuration: Duration.zero,
     );
+  }
+
+  Future<void> savePlaybackPosition({
+    required String id,
+    required Duration position,
+    required Duration totalDuration,
+    DateTime? lastPlayedAt,
+  }) async {
+    final current = await readPlaybackHistory();
+    final previous = current[id];
+    final duration = totalDuration > Duration.zero
+        ? totalDuration
+        : previous?.totalDuration ?? Duration.zero;
+    final finished =
+        duration > Duration.zero &&
+        position.inMilliseconds * 100 >= duration.inMilliseconds * 95;
+    current[id] = PlaybackHistoryEntry(
+      videoId: id,
+      position: finished ? Duration.zero : position,
+      totalDuration: duration,
+      lastPlayedAt: lastPlayedAt ?? DateTime.now(),
+      finished: finished,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _historyKey,
+      jsonEncode(current.map((key, value) => MapEntry(key, value.toJson()))),
+    );
+  }
+
+  Future<void> clearPlaybackHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_historyKey);
+    await prefs.remove(_progressKey);
   }
 
   List<FolderSummary> foldersFor(List<VideoFile> files) {

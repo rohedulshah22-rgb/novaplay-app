@@ -107,6 +107,12 @@ When a cue cannot be translated, NovaPlay leaves the video viewport clear and co
 
 Inside `PlayerScreen`, the player allows portrait and both landscape orientations, listens to accelerometer sensor events when orientation is not manually locked, switches landscape playback to immersive system UI, and restores portrait/edge-to-edge behavior on exit. The HUD includes a manual orientation lock button, aspect cycling across Fit, Fill, 16:9, Stretch, and Original, two-finger pinch zoom, and a fullscreen battery/time pill. A single tap on the video viewport toggles the HUD immediately, while Flutter’s tap recognizers reserve double taps for side-aware seeking. Rapid taps accumulate into ±20s, ±30s, and larger jumps; a timed animated indicator appears on the left or right side without interrupting playback.
 
+### Resume playback and history
+
+NovaPlay persists playback history in `SharedPreferences` through `PlaybackHistoryEntry`, keyed by the media identifier. The player saves position, total duration, and last-played time every two seconds, on pause, and during route disposal. Positions beyond 95% of the known duration are marked finished and reset to zero so completed videos do not remain in the resume carousel. Existing legacy progress data is migrated when first read.
+
+When a video has a saved point beyond five seconds, it is sought automatically after opening and shows a lightweight `Resumed from HH:MM:SS` SnackBar with a `Restart` action. The Home header includes a History button that opens the most recently played resumable video directly. Resume cards and the History action are ordered by last-played time, while all video-list and folder entry points inherit the same PlayerScreen behavior.
+
 Folder detail views default to natural A-to-Z ordering. `NaturalSort` recognizes S01E01, E01, Episode 1, and similar episode tokens before applying token-aware numeric comparison, so Episode 10 follows Episode 9 instead of sorting before it. Folder sort, duration filter, resolution filter, and grid/list preferences are persisted with `SharedPreferences`; Recent and Largest remain available from the view menu.
 
 List, grid, folder-detail, and Reels views never construct a MediaKit `Player` or `VideoController`. They render only cached static thumbnails. Playback begins only after an explicit video tap opens `PlayerScreen`; that screen owns the single active controller, pauses it during teardown, and disposes it before the route is released. This prevents background audio from leaking while browsing or switching tabs.

@@ -12,6 +12,7 @@ class VideoFile {
     this.width = 0,
     this.height = 0,
     this.progress = Duration.zero,
+    this.lastPlayedAt,
     this.thumbnailPath,
     this.contentUri,
     this.relativePath,
@@ -27,6 +28,7 @@ class VideoFile {
   final int width;
   final int height;
   final Duration progress;
+  final DateTime? lastPlayedAt;
   final String? thumbnailPath;
   final String? contentUri;
   final String? relativePath;
@@ -63,6 +65,7 @@ class VideoFile {
 
   VideoFile copyWith({
     Duration? progress,
+    DateTime? lastPlayedAt,
     String? thumbnailPath,
     Duration? duration,
     int? width,
@@ -77,6 +80,7 @@ class VideoFile {
     width: width ?? this.width,
     height: height ?? this.height,
     progress: progress ?? this.progress,
+    lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
     thumbnailPath: thumbnailPath ?? this.thumbnailPath,
     contentUri: contentUri,
     relativePath: relativePath,
@@ -93,6 +97,7 @@ class VideoFile {
     'width': width,
     'height': height,
     'progressMs': progress.inMilliseconds,
+    'lastPlayedAtMs': lastPlayedAt?.millisecondsSinceEpoch,
     'thumbnailPath': thumbnailPath,
     'contentUri': contentUri,
     'relativePath': relativePath,
@@ -113,6 +118,11 @@ class VideoFile {
     progress: Duration(
       milliseconds: (json['progressMs'] as num?)?.toInt() ?? 0,
     ),
+    lastPlayedAt: (json['lastPlayedAtMs'] as num?) == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(
+            (json['lastPlayedAtMs'] as num).toInt(),
+          ),
     thumbnailPath: json['thumbnailPath'] as String?,
     contentUri: json['contentUri'] as String?,
     relativePath: json['relativePath'] as String?,

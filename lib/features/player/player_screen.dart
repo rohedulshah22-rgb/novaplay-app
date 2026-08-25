@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -11,20 +12,23 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
+import '../media/data/media_repository.dart';
+import '../media/domain/playback_history.dart';
 import '../media/domain/video_file.dart';
+import '../media/presentation/media_providers.dart';
 import 'ai_subtitle_preferences.dart';
 import 'ai_subtitle_service.dart';
 import 'capture_service.dart';
 import 'precision_scrubber.dart';
 
-class PlayerScreen extends StatefulWidget {
+class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key, required this.file});
   final VideoFile file;
   @override
-  State<PlayerScreen> createState() => _PlayerScreenState();
+  ConsumerState<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   static const _pipChannel = MethodChannel('com.novaplay/player');
   late final Player player;
   late final VideoController controller;
@@ -33,6 +37,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _seekIndicatorTimer;
   StreamSubscription<AccelerometerEvent>? _sensorSubscription;
   StreamSubscription<List<String>>? _embeddedSubtitleSubscription;
+  StreamSubscription<bool>? _playingSubscription;
   bool controlsVisible = true;
   bool locked = false;
   bool _hudVisible = false;
@@ -56,6 +61,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final captureService = const CaptureService();
   final aiSubtitleService = AiSubtitleService();
   Timer? _subtitleTimer;
+  Timer? _resumeSaveTimer;
   bool aiSubtitlesEnabled = false;
   String aiSubtitleLanguage = 'English';
   double aiSubtitleFontScale = 1.0;
@@ -68,15 +74,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _seekIndicatorVisible = false;
   Duration? _queuedSeekPosition;
   Future<void> _seekQueue = Future<void>.value();
+  final resumeRepository = const MediaRepository();
+  bool _resumeRestored = false;
 
   @override
   void initState() {
     super.initState();
     player = Player(configuration: const PlayerConfiguration(pitch: true));
     controller = VideoController(player);
-    player.open(Media(widget.file.path), play: true).then((_) {
-      if (mounted) player.setSubtitleTrack(SubtitleTrack.no());
-    });
+    _openMediaAndRestoreResume();
     _loadAiSubtitlePreferences();
     WakelockPlus.enable();
     _enableAutoOrientation();
@@ -95,7 +101,75 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _embeddedSubtitleText = text.isEmpty ? null : text;
       if (text.isNotEmpty && aiSubtitlesEnabled) _requestSubtitle();
     });
+    _playingSubscription = player.stream.playing.listen((playing) {
+      if (!playing) _saveResumePosition();
+    });
+    _resumeSaveTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _saveResumePosition(),
+    );
     _armControlsTimer();
+  }
+
+  Future<void> _openMediaAndRestoreResume() async {
+    await player.open(Media(widget.file.path), play: true);
+    if (!mounted) return;
+    await player.setSubtitleTrack(SubtitleTrack.no());
+    final history = await resumeRepository.readPlaybackHistory();
+    final entry = history[widget.file.id];
+    final resume = entry?.position ?? widget.file.progress;
+    final duration = player.state.duration > Duration.zero
+        ? player.state.duration
+        : entry?.totalDuration ?? widget.file.duration;
+    if (resume <= const Duration(seconds: 5) ||
+        (duration > Duration.zero &&
+            resume.inMilliseconds * 100 >= duration.inMilliseconds * 95)) {
+      _resumeRestored = true;
+      return;
+    }
+    await player.seek(resume);
+    _resumeRestored = true;
+    if (!mounted) return;
+    final label = formatResumeTime(resume);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('Resumed from $label'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Restart',
+            onPressed: _restartFromBeginning,
+          ),
+        ),
+      );
+  }
+
+  Future<void> _restartFromBeginning() async {
+    await player.seek(Duration.zero);
+    await _saveResumePosition();
+  }
+
+  Future<void> _saveResumePosition({bool updateLibrary = true}) async {
+    if (!_resumeRestored) return;
+    final duration = player.state.duration;
+    final position = player.state.position;
+    if (duration <= Duration.zero && position <= Duration.zero) return;
+    final totalDuration = duration > Duration.zero
+        ? duration
+        : widget.file.duration;
+    if (updateLibrary && mounted) {
+      await ref
+          .read(mediaLibraryProvider.notifier)
+          .saveProgress(widget.file, position, totalDuration: totalDuration);
+    } else {
+      await resumeRepository.savePlaybackPosition(
+        id: widget.file.id,
+        position: position,
+        totalDuration: totalDuration,
+      );
+    }
   }
 
   Future<void> _loadSystemLevels() async {
@@ -521,8 +595,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _statusTimer?.cancel();
     _seekIndicatorTimer?.cancel();
     _subtitleTimer?.cancel();
+    _resumeSaveTimer?.cancel();
     _sensorSubscription?.cancel();
     _embeddedSubtitleSubscription?.cancel();
+    _playingSubscription?.cancel();
+    _saveResumePosition(updateLibrary: false);
     aiSubtitleService.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);

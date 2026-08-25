@@ -82,7 +82,25 @@ class MediaLibraryState {
   }
 
   List<VideoFile> get recentlyPlayed =>
-      files.where((file) => file.progress > Duration.zero).take(8).toList();
+      (files.where((file) => file.progress > Duration.zero).toList()..sort(
+            (a, b) => (b.lastPlayedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                .compareTo(
+                  a.lastPlayedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                ),
+          ))
+          .take(8)
+          .toList();
+
+  VideoFile? get resumeLastVideo {
+    final items = files.where((file) => file.progress > Duration.zero).toList()
+      ..sort(
+        (a, b) => (b.lastPlayedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(
+              a.lastPlayedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            ),
+      );
+    return items.isEmpty ? null : items.first;
+  }
 
   List<FolderSummary> folders(MediaRepository repository) =>
       repository.foldersFor(files);
@@ -203,14 +221,39 @@ class MediaLibraryNotifier extends Notifier<MediaLibraryState> {
   void setResolutionFilter(String value) =>
       state = state.copyWith(resolutionFilter: value);
 
-  Future<void> saveProgress(VideoFile file, Duration progress) async {
+  Future<void> saveProgress(
+    VideoFile file,
+    Duration progress, {
+    Duration? totalDuration,
+  }) async {
+    final duration = totalDuration ?? file.duration;
+    final finished =
+        duration > Duration.zero &&
+        progress.inMilliseconds * 100 >= duration.inMilliseconds * 95;
+    final savedProgress = finished ? Duration.zero : progress;
+    final now = DateTime.now();
     final files = state.files
         .map(
-          (item) =>
-              item.id == file.id ? item.copyWith(progress: progress) : item,
+          (item) => item.id == file.id
+              ? item.copyWith(progress: savedProgress, lastPlayedAt: now)
+              : item,
         )
         .toList();
     state = state.copyWith(files: files);
-    await repository.saveProgress(file.id, progress);
+    await repository.savePlaybackPosition(
+      id: file.id,
+      position: progress,
+      totalDuration: duration,
+      lastPlayedAt: now,
+    );
+  }
+
+  Future<void> clearResumeHistory() async {
+    await repository.clearPlaybackHistory();
+    state = state.copyWith(
+      files: state.files
+          .map((file) => file.copyWith(progress: Duration.zero))
+          .toList(),
+    );
   }
 }

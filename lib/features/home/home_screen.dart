@@ -55,6 +55,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
                     _Header(
+                      onResume: resume.isEmpty
+                          ? null
+                          : () => openPlayer(resume.first),
                       onSettings: () =>
                           ref.read(appTabProvider.notifier).select(4),
                     ),
@@ -312,7 +315,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.onSettings});
+  const _Header({required this.onResume, required this.onSettings});
+  final VoidCallback? onResume;
   final VoidCallback onSettings;
   @override
   Widget build(BuildContext context) => Row(
@@ -337,6 +341,14 @@ class _Header extends StatelessWidget {
         ),
       ),
       const Spacer(),
+      IconButton(
+        onPressed: onResume,
+        tooltip: onResume == null ? 'No resume history' : 'Resume last video',
+        icon: Icon(
+          Icons.history_rounded,
+          color: onResume == null ? NovaColors.border : NovaColors.cyan,
+        ),
+      ),
       IconButton(
         onPressed: onSettings,
         icon: const Icon(Icons.tune_rounded, color: NovaColors.muted),
