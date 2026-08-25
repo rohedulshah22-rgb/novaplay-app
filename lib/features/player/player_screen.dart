@@ -1066,17 +1066,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   );
                 },
               ),
-              if (orientation == Orientation.landscape && systemTime.isNotEmpty)
-                Positioned(
-                  top: 10,
-                  right: 16,
-                  child: SafeArea(
-                    child: _DeviceStatusPill(
-                      batteryPercent: batteryPercent,
-                      systemTime: systemTime,
-                    ),
-                  ),
-                ),
               if (_hudVisible)
                 Center(
                   child: _Hud(icon: _hudIcon, label: _hudLabel),
@@ -1103,31 +1092,48 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     child: AnimatedOpacity(
                       opacity: controlsVisible ? 1 : 0,
                       duration: const Duration(milliseconds: 200),
-                      child: _ControlsOverlay(
-                        file: _currentFile,
-                        player: player,
-                        onBack: () => Navigator.pop(context),
-                        onPrevious: () => _playQueueOffset(-1),
-                        onStop: _stopAndClose,
-                        onNext: () => _playQueueOffset(1),
-                        onLock: () => setState(() {
-                          locked = true;
-                          controlsVisible = false;
-                        }),
-                        onMore: _showOptions,
-                        onPip: _enterPip,
-                        onSnapshot: _captureSnapshot,
-                        onGif: _captureGif,
-                        dialogueEnhancerEnabled: dialogueEnhancer,
-                        onDialogueEnhancer: _toggleDialogueEnhancer,
-                        aiSubtitlesEnabled: aiSubtitlesEnabled,
-                        onAiSubtitles: _showAiSubtitleSettings,
-                        onOrientation: _toggleManualOrientation,
-                        onAspectRatio: _cycleAspectRatio,
-                        orientationLocked: orientationLocked,
-                        landscapeLocked: landscapeLocked,
-                        aspectMode: aspectMode,
-                        onInteract: _armControlsTimer,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (orientation == Orientation.landscape &&
+                              systemTime.isNotEmpty)
+                            Positioned(
+                              top: 10,
+                              right: 16,
+                              child: SafeArea(
+                                child: _DeviceStatusPill(
+                                  batteryPercent: batteryPercent,
+                                  systemTime: systemTime,
+                                ),
+                              ),
+                            ),
+                          _ControlsOverlay(
+                            file: _currentFile,
+                            player: player,
+                            onBack: () => Navigator.pop(context),
+                            onPrevious: () => _playQueueOffset(-1),
+                            onStop: _stopAndClose,
+                            onNext: () => _playQueueOffset(1),
+                            onLock: () => setState(() {
+                              locked = true;
+                              controlsVisible = false;
+                            }),
+                            onMore: _showOptions,
+                            onPip: _enterPip,
+                            onSnapshot: _captureSnapshot,
+                            onGif: _captureGif,
+                            dialogueEnhancerEnabled: dialogueEnhancer,
+                            onDialogueEnhancer: _toggleDialogueEnhancer,
+                            aiSubtitlesEnabled: aiSubtitlesEnabled,
+                            onAiSubtitles: _showAiSubtitleSettings,
+                            onOrientation: _toggleManualOrientation,
+                            onAspectRatio: _cycleAspectRatio,
+                            orientationLocked: orientationLocked,
+                            landscapeLocked: landscapeLocked,
+                            aspectMode: aspectMode,
+                            onInteract: _armControlsTimer,
+                          ),
+                        ],
                       ),
                     ),
                   ),
