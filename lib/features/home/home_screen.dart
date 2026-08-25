@@ -317,21 +317,16 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Container(
-        width: 42,
-        height: 42,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          gradient: const LinearGradient(
-            colors: [NovaColors.cyan, NovaColors.violet],
-          ),
-        ),
-        child: const Icon(
-          Icons.bolt_rounded,
-          color: NovaColors.black,
-          size: 25,
+      ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.asset(
+          'assets/novaplay_logo.png',
+          width: 42,
+          height: 42,
+          fit: BoxFit.cover,
         ),
       ),
+
       const SizedBox(width: 11),
       const Text(
         'NovaPlay',
