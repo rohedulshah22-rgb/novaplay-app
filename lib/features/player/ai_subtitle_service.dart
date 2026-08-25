@@ -24,36 +24,39 @@ class AiSubtitleService {
   final http.Client _client;
   bool get isConfigured => _endpoint.isNotEmpty || _apiKey.isNotEmpty;
 
-  Future<AiCaption?> recognizeAndTranslate({
+  Future<AiSubtitleResult> recognizeAndTranslate({
     required String sourcePath,
     required Duration position,
     required AiSubtitleLanguage language,
   }) async {
+    final localCaption = await _readLocalSidecarCaption(sourcePath, position);
+    if (localCaption != null) {
+      return AiSubtitleResult(caption: localCaption, usedLocalFallback: true);
+    }
+
     if (!isConfigured) {
-      throw const AiSubtitleException(
-        'AI CC needs a configured subtitle relay for this build.',
-      );
+      return const AiSubtitleResult(requiresCloudRelay: true);
     }
     if (sourcePath.startsWith('content://')) {
-      throw const AiSubtitleException(
-        'AI CC cannot read this protected media source yet.',
-      );
+      return const AiSubtitleResult(requiresCloudRelay: true);
     }
 
     final audioFile = await _extractAudioWindow(sourcePath, position);
-    if (audioFile == null) return null;
+    if (audioFile == null) return const AiSubtitleResult();
 
     try {
       final transcript = await _transcribe(audioFile, language);
-      if (transcript.trim().isEmpty) return null;
+      if (transcript.trim().isEmpty) return const AiSubtitleResult();
       final translated = await _translate(transcript, language);
       final text = translated.trim().isEmpty
           ? transcript.trim()
           : translated.trim();
-      return AiCaption(
-        text: text,
-        start: position,
-        end: position + const Duration(seconds: 6),
+      return AiSubtitleResult(
+        caption: AiCaption(
+          text: text,
+          start: position,
+          end: position + const Duration(seconds: 6),
+        ),
       );
     } finally {
       try {
@@ -111,9 +114,7 @@ class AiSubtitleService {
     String transcript,
     AiSubtitleLanguage language,
   ) async {
-    if (_endpoint.isNotEmpty) {
-      return transcript;
-    }
+    if (_endpoint.isNotEmpty) return transcript;
     if (_apiKey.isEmpty || language.code == 'en') return transcript;
 
     final response = await _client.post(
@@ -153,6 +154,57 @@ class AiSubtitleService {
     return transcript;
   }
 
+  Future<AiCaption?> _readLocalSidecarCaption(
+    String sourcePath,
+    Duration position,
+  ) async {
+    if (sourcePath.startsWith('content://')) return null;
+    final basePath = path.withoutExtension(sourcePath);
+    for (final extension in ['.srt', '.vtt']) {
+      final file = File('$basePath$extension');
+      if (!await file.exists()) continue;
+      final caption = await _parseCaptionFile(file, position);
+      if (caption != null) return caption;
+    }
+    return null;
+  }
+
+  Future<AiCaption?> _parseCaptionFile(File file, Duration position) async {
+    final lines = await file.readAsLines();
+    for (var index = 0; index < lines.length; index++) {
+      final match = _timestampPattern.firstMatch(lines[index]);
+      if (match == null) continue;
+      final start = _parseTimestamp(match.group(1)!);
+      final end = _parseTimestamp(match.group(2)!);
+      if (position < start || position > end) continue;
+      final text = <String>[];
+      for (var next = index + 1; next < lines.length; next++) {
+        final line = lines[next].trim();
+        if (line.isEmpty) break;
+        if (_timestampPattern.hasMatch(line)) break;
+        if (!RegExp(r'^\d+$').hasMatch(line)) text.add(line);
+      }
+      final value = text.join('\n').replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      if (value.isEmpty) return null;
+      return AiCaption(text: value, start: start, end: end);
+    }
+    return null;
+  }
+
+  static final _timestampPattern = RegExp(
+    r'((?:\d{2}:)?\d{2}:\d{2}[,.]\d{3})\s*-->\s*((?:\d{2}:)?\d{2}:\d{2}[,.]\d{3})',
+  );
+
+  Duration _parseTimestamp(String value) {
+    final parts = value.replaceAll(',', '.').split(':');
+    final seconds = double.parse(parts.removeLast());
+    final minutes = int.parse(parts.removeLast());
+    final hours = parts.isEmpty ? 0 : int.parse(parts.removeLast());
+    return Duration(
+      milliseconds: ((hours * 3600 + minutes * 60 + seconds) * 1000).round(),
+    );
+  }
+
   Map<String, dynamic> _decodeObject(String body) {
     final decoded = jsonDecode(body);
     if (decoded is Map<String, dynamic>) return decoded;
@@ -185,6 +237,18 @@ class AiSubtitleService {
       (value.inMilliseconds / 1000).toStringAsFixed(3);
 
   void dispose() => _client.close();
+}
+
+class AiSubtitleResult {
+  const AiSubtitleResult({
+    this.caption,
+    this.requiresCloudRelay = false,
+    this.usedLocalFallback = false,
+  });
+
+  final AiCaption? caption;
+  final bool requiresCloudRelay;
+  final bool usedLocalFallback;
 }
 
 class AiCaption {

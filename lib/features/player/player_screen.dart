@@ -59,13 +59,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double aiSubtitleFontScale = 1.0;
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
+  bool _aiCloudSetupToastShown = false;
 
   @override
   void initState() {
     super.initState();
     player = Player(configuration: const PlayerConfiguration(pitch: true));
     controller = VideoController(player);
-    player.open(Media(widget.file.path), play: true);
+    player.open(Media(widget.file.path), play: true).then((_) {
+      if (mounted) player.setSubtitleTrack(SubtitleTrack.no());
+    });
     _loadAiSubtitlePreferences();
     WakelockPlus.enable();
     _enableAutoOrientation();
@@ -176,25 +179,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!aiSubtitlesEnabled || _subtitleRequestInFlight) return;
     _subtitleRequestInFlight = true;
     try {
-      final caption = await aiSubtitleService.recognizeAndTranslate(
+      final result = await aiSubtitleService.recognizeAndTranslate(
         sourcePath: widget.file.path,
         position: player.state.position,
         language: _selectedSubtitleLanguage,
       );
       if (!mounted || !aiSubtitlesEnabled) return;
-      if (caption != null) setState(() => _activeCaption = caption);
-    } on AiSubtitleException catch (error) {
-      if (mounted) _showHud(error.message, Icons.info_outline_rounded);
-    } catch (_) {
-      if (mounted) {
-        _showHud(
-          'AI CC could not read this audio',
-          Icons.error_outline_rounded,
-        );
+      if (result.requiresCloudRelay) {
+        _showAiCloudSetupToastOnce();
+      } else if (result.caption != null) {
+        setState(() => _activeCaption = result.caption);
       }
+    } on AiSubtitleException {
+      if (mounted) _showAiCloudSetupToastOnce();
+    } catch (_) {
+      if (mounted) _showAiCloudSetupToastOnce();
     } finally {
       _subtitleRequestInFlight = false;
     }
+  }
+
+  void _showAiCloudSetupToastOnce() {
+    if (_aiCloudSetupToastShown || !mounted) return;
+    _aiCloudSetupToastShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('AI Live Subtitles currently requires cloud relay setup'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   void _showAiSubtitleSettings() {
@@ -681,8 +695,133 @@ class _PlayerScreenState extends State<PlayerScreen> {
       context: context,
       backgroundColor: NovaColors.surface,
       showDragHandle: true,
-      builder: (_) => _PlayerOptions(player: player, onSubtitle: _pickSubtitle),
+      builder: (_) => _PlayerOptions(
+        player: player,
+        onSubtitle: _showEmbeddedSubtitleTracks,
+      ),
     );
+  }
+
+  void _showEmbeddedSubtitleTracks() {
+    final tracks = player.state.tracks.subtitle;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          shrinkWrap: true,
+          children: [
+            const Text(
+              'Subtitle tracks',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Choose an embedded language or turn subtitles off. Changes apply immediately.',
+              style: TextStyle(color: NovaColors.muted),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(
+                Icons.subtitles_off_rounded,
+                color: NovaColors.cyan,
+              ),
+              title: const Text('None / Turn Off Subtitles'),
+              subtitle: const Text('Hide all embedded subtitle output'),
+              onTap: () async {
+                await player.setSubtitleTrack(SubtitleTrack.no());
+                if (!mounted) return;
+                Navigator.pop(context);
+                _showHud('Subtitles off', Icons.subtitles_off_rounded);
+              },
+            ),
+            const Divider(height: 14),
+            if (tracks.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 18),
+                child: Text('No embedded subtitle tracks found.'),
+              )
+            else
+              ...tracks.asMap().entries.map(
+                (entry) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.subtitles_rounded,
+                    color: NovaColors.violet,
+                  ),
+                  title: Text(_subtitleTrackLabel(entry.value)),
+                  subtitle: Text(
+                    entry.value.codec == null
+                        ? 'Embedded subtitle track ${entry.key + 1}'
+                        : 'Embedded · ${entry.value.codec}',
+                  ),
+                  onTap: () async {
+                    await player.setSubtitleTrack(entry.value);
+                    if (!mounted) return;
+                    Navigator.pop(context);
+                    _showHud(
+                      '${_subtitleTrackLabel(entry.value)} selected',
+                      Icons.subtitles_rounded,
+                    );
+                  },
+                ),
+              ),
+            const Divider(height: 20),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.file_open_rounded),
+              title: const Text('Load external subtitle file'),
+              onTap: () async {
+                Navigator.pop(context);
+                await _pickSubtitle();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _subtitleTrackLabel(SubtitleTrack track) {
+    const names = {
+      'ar': 'Arabic',
+      'ara': 'Arabic',
+      'bn': 'Bengali',
+      'ben': 'Bengali',
+      'zh': 'Chinese',
+      'zho': 'Chinese',
+      'de': 'German',
+      'deu': 'German',
+      'en': 'English',
+      'eng': 'English',
+      'es': 'Spanish',
+      'spa': 'Spanish',
+      'fr': 'French',
+      'fra': 'French',
+      'hi': 'Hindi',
+      'hin': 'Hindi',
+      'ja': 'Japanese',
+      'jpn': 'Japanese',
+      'ko': 'Korean',
+      'kor': 'Korean',
+      'pt': 'Portuguese',
+      'por': 'Portuguese',
+    };
+    final rawLanguage = track.language?.trim();
+    final language = rawLanguage == null || rawLanguage.isEmpty
+        ? null
+        : names[rawLanguage.toLowerCase()] ?? rawLanguage;
+    final title = track.title?.trim();
+    if (title != null && title.isNotEmpty && language != null) {
+      if (title.toLowerCase() == rawLanguage?.toLowerCase()) return language;
+      return '$title · $language';
+    }
+    if (title != null && title.isNotEmpty) return title;
+    if (language != null) return language;
+    return 'Subtitle track';
   }
 
   Future<void> _pickSubtitle() async {
@@ -694,7 +833,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await player.setSubtitleTrack(
       SubtitleTrack.uri(file!.path!, title: file.name, language: 'und'),
     );
-    if (mounted) Navigator.pop(context);
+    if (mounted) {
+      _showHud('External subtitles selected', Icons.subtitles_rounded);
+    }
   }
 }
 
