@@ -679,30 +679,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ),
                   ),
                 )
-              else if (controlsVisible)
+              else
                 Positioned.fill(
-                  child: _ControlsOverlay(
-                    file: widget.file,
-                    player: player,
-                    onBack: () => Navigator.pop(context),
-                    onLock: () => setState(() {
-                      locked = true;
-                      controlsVisible = false;
-                    }),
-                    onMore: _showOptions,
-                    onPip: _enterPip,
-                    onSnapshot: _captureSnapshot,
-                    onGif: _captureGif,
-                    dialogueEnhancerEnabled: dialogueEnhancer,
-                    onDialogueEnhancer: _toggleDialogueEnhancer,
-                    aiSubtitlesEnabled: aiSubtitlesEnabled,
-                    onAiSubtitles: _showAiSubtitleSettings,
-                    onOrientation: _toggleManualOrientation,
-                    onAspectRatio: _cycleAspectRatio,
-                    orientationLocked: orientationLocked,
-                    landscapeLocked: landscapeLocked,
-                    aspectMode: aspectMode,
-                    onInteract: _armControlsTimer,
+                  child: IgnorePointer(
+                    ignoring: !controlsVisible,
+                    child: AnimatedOpacity(
+                      opacity: controlsVisible ? 1 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: _ControlsOverlay(
+                        file: widget.file,
+                        player: player,
+                        onBack: () => Navigator.pop(context),
+                        onLock: () => setState(() {
+                          locked = true;
+                          controlsVisible = false;
+                        }),
+                        onMore: _showOptions,
+                        onPip: _enterPip,
+                        onSnapshot: _captureSnapshot,
+                        onGif: _captureGif,
+                        dialogueEnhancerEnabled: dialogueEnhancer,
+                        onDialogueEnhancer: _toggleDialogueEnhancer,
+                        aiSubtitlesEnabled: aiSubtitlesEnabled,
+                        onAiSubtitles: _showAiSubtitleSettings,
+                        onOrientation: _toggleManualOrientation,
+                        onAspectRatio: _cycleAspectRatio,
+                        orientationLocked: orientationLocked,
+                        landscapeLocked: landscapeLocked,
+                        aspectMode: aspectMode,
+                        onInteract: _armControlsTimer,
+                      ),
+                    ),
                   ),
                 ),
             ],
@@ -913,18 +920,22 @@ class _ControlsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IgnorePointer(
-      ignoring: false,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Colors.black87, Colors.transparent, Colors.black87],
-            stops: [0, .42, 1],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const IgnorePointer(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black87, Colors.transparent, Colors.black87],
+                stops: [0, .42, 1],
+              ),
+            ),
           ),
         ),
-        child: SafeArea(
+        SafeArea(
           child: Column(
             children: [
               Row(
@@ -1104,7 +1115,7 @@ class _ControlsOverlay extends StatelessWidget {
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
