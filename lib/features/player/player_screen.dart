@@ -32,6 +32,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _statusTimer;
   Timer? _seekIndicatorTimer;
   StreamSubscription<AccelerometerEvent>? _sensorSubscription;
+  StreamSubscription<List<String>>? _embeddedSubtitleSubscription;
   bool controlsVisible = true;
   bool locked = false;
   bool _hudVisible = false;
@@ -61,6 +62,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
   bool _aiCloudSetupToastShown = false;
+  String? _embeddedSubtitleText;
   int _seekIndicatorSeconds = 0;
   int _seekIndicatorDirection = 1;
   int _seekIndicatorNonce = 0;
@@ -88,6 +90,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _sensorSubscription = accelerometerEventStream().listen(
       _onAccelerometerEvent,
     );
+    _embeddedSubtitleSubscription = player.stream.subtitle.listen((lines) {
+      if (!mounted) return;
+      final text = lines.join('\n').trim();
+      _embeddedSubtitleText = text.isEmpty ? null : text;
+      if (text.isNotEmpty && aiSubtitlesEnabled) _requestSubtitle();
+    });
     _armControlsTimer();
   }
 
@@ -190,6 +198,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         sourcePath: widget.file.path,
         position: player.state.position,
         language: _selectedSubtitleLanguage,
+        sourceText: _embeddedSubtitleText,
       );
       if (!mounted || !aiSubtitlesEnabled) return;
       if (result.requiresCloudRelay) {
@@ -528,6 +537,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _seekIndicatorTimer?.cancel();
     _subtitleTimer?.cancel();
     _sensorSubscription?.cancel();
+    _embeddedSubtitleSubscription?.cancel();
     aiSubtitleService.dispose();
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
@@ -743,19 +753,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     seconds: _seekIndicatorSeconds,
                   ),
                 ),
-              if (aiSubtitlesEnabled && _activeCaption != null)
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: orientation == Orientation.landscape ? 64 : 84,
-                  child: SafeArea(
-                    child: _AiCaptionPill(
-                      text: _activeCaption!.text,
-                      fontScale: aiSubtitleFontScale,
-                      language: aiSubtitleLanguage,
+              StreamBuilder<Duration>(
+                stream: player.stream.position,
+                initialData: player.state.position,
+                builder: (context, snapshot) {
+                  final caption = _activeCaption;
+                  final position = snapshot.data ?? Duration.zero;
+                  final visible =
+                      aiSubtitlesEnabled &&
+                      caption != null &&
+                      position >= caption.start &&
+                      position <= caption.end;
+                  if (!visible) return const SizedBox.shrink();
+                  return Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: orientation == Orientation.landscape ? 64 : 84,
+                    child: SafeArea(
+                      child: _AiCaptionPill(
+                        text: caption.text,
+                        fontScale: aiSubtitleFontScale,
+                        language: aiSubtitleLanguage,
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
+              ),
               if (orientation == Orientation.landscape && systemTime.isNotEmpty)
                 Positioned(
                   top: 10,
