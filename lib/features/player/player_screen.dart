@@ -61,7 +61,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double aiSubtitleFontScale = 1.0;
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
-  bool _aiCloudSetupToastShown = false;
   String? _embeddedSubtitleText;
   int _seekIndicatorSeconds = 0;
   int _seekIndicatorDirection = 1;
@@ -201,30 +200,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         sourceText: _embeddedSubtitleText,
       );
       if (!mounted || !aiSubtitlesEnabled) return;
-      if (result.requiresCloudRelay) {
-        _showAiCloudSetupToastOnce();
-      } else if (result.caption != null) {
+      if (result.caption != null) {
         setState(() => _activeCaption = result.caption);
       }
     } on AiSubtitleException {
-      if (mounted) _showAiCloudSetupToastOnce();
+      // Direct cue translation is best-effort; keep playback unobstructed.
     } catch (_) {
-      if (mounted) _showAiCloudSetupToastOnce();
+      // Direct cue translation is best-effort; keep playback unobstructed.
     } finally {
       _subtitleRequestInFlight = false;
     }
-  }
-
-  void _showAiCloudSetupToastOnce() {
-    if (_aiCloudSetupToastShown || !mounted) return;
-    _aiCloudSetupToastShown = true;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('AI Live Subtitles currently requires cloud relay setup'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 3),
-      ),
-    );
   }
 
   void _showAiSubtitleSettings() {

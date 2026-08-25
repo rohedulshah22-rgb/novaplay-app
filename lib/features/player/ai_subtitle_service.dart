@@ -61,10 +61,10 @@ class AiSubtitleService {
     }
 
     if (!isConfigured) {
-      return const AiSubtitleResult(requiresCloudRelay: true);
+      return const AiSubtitleResult();
     }
     if (sourcePath.startsWith('content://')) {
-      return const AiSubtitleResult(requiresCloudRelay: true);
+      return const AiSubtitleResult();
     }
 
     final audioFile = await _extractAudioWindow(sourcePath, position);
@@ -392,14 +392,9 @@ class AiSubtitleService {
 }
 
 class AiSubtitleResult {
-  const AiSubtitleResult({
-    this.caption,
-    this.requiresCloudRelay = false,
-    this.usedLocalFallback = false,
-  });
+  const AiSubtitleResult({this.caption, this.usedLocalFallback = false});
 
   final AiCaption? caption;
-  final bool requiresCloudRelay;
   final bool usedLocalFallback;
 }
 
