@@ -213,6 +213,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     WakelockPlus.disable();
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    player.pause();
     player.dispose();
     super.dispose();
   }

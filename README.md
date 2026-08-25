@@ -96,6 +96,8 @@ Inside `PlayerScreen`, the player allows portrait and both landscape orientation
 
 Folder detail views default to natural A-to-Z ordering. `NaturalSort` recognizes S01E01, E01, Episode 1, and similar episode tokens before applying token-aware numeric comparison, so Episode 10 follows Episode 9 instead of sorting before it. Folder sort, duration filter, resolution filter, and grid/list preferences are persisted with `SharedPreferences`; Recent and Largest remain available from the view menu.
 
+List, grid, folder-detail, and Reels views never construct a MediaKit `Player` or `VideoController`. They render only cached static thumbnails. Playback begins only after an explicit video tap opens `PlayerScreen`; that screen owns the single active controller, pauses it during teardown, and disposes it before the route is released. This prevents background audio from leaking while browsing or switching tabs.
+
 The dialogue enhancer uses an MPV `af` filter chain through the native MediaKit backend. It reduces low-frequency impact rumble, lifts the vocal presence range around 1.4–3 kHz, and applies light compression. The filter is cleared when the toggle is disabled. This is a playback enhancement rather than a destructive transcode.
 
 Capture actions are intentionally local-first: MediaKit’s native screenshot API produces a high-resolution PNG at the current frame, while FFmpegKit seeks to the current position and encodes a five-second 12 fps GIF. Saver Gallery writes both outputs to `Pictures/NovaPlay/Snapshots` or `Pictures/NovaPlay/GIFs` on Android.

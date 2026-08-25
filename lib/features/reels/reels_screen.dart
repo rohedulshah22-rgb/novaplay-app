@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:media_kit/media_kit.dart';
-import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
+import '../media/presentation/video_card.dart';
+import '../player/player_screen.dart';
 
 class ReelsScreen extends ConsumerWidget {
   const ReelsScreen({super.key});
@@ -27,61 +27,43 @@ class ReelsScreen extends ConsumerWidget {
       body: PageView.builder(
         scrollDirection: Axis.vertical,
         itemCount: reels.length,
-        itemBuilder: (context, index) =>
-            ReelPage(file: reels[index], isActive: index == 0),
+        itemBuilder: (context, index) => ReelPage(file: reels[index]),
       ),
     );
   }
 }
 
-class ReelPage extends StatefulWidget {
-  const ReelPage({super.key, required this.file, this.isActive = false});
+class ReelPage extends StatelessWidget {
+  const ReelPage({super.key, required this.file});
   final VideoFile file;
-  final bool isActive;
-  @override
-  State<ReelPage> createState() => _ReelPageState();
-}
 
-class _ReelPageState extends State<ReelPage> {
-  late final Player player;
-  late final VideoController controller;
-  bool showControls = true;
-
-  @override
-  void initState() {
-    super.initState();
-    player = Player();
-    controller = VideoController(player);
-    player.open(Media(widget.file.path), play: widget.isActive);
-  }
-
-  @override
-  void dispose() {
-    player.dispose();
-    super.dispose();
+  void openPlayer(BuildContext context) {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => PlayerScreen(file: file)));
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => setState(() => showControls = !showControls),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => openPlayer(context),
       child: Stack(
         fit: StackFit.expand,
         children: [
           Center(
-            child: Video(controller: controller, controls: NoVideoControls),
+            child: VideoArtwork(file: file, aspectRatio: 9 / 16),
           ),
-          if (showControls)
-            const DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.black54, Colors.transparent, Colors.black87],
-                  stops: [0, .46, 1],
-                ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black54, Colors.transparent, Colors.black87],
+                stops: [0, .46, 1],
               ),
             ),
+          ),
           SafeArea(
             child: Column(
               children: [
@@ -102,7 +84,9 @@ class _ReelPageState extends State<ReelPage> {
                       onPressed: () =>
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Reels are stored locally only'),
+                              content: Text(
+                                'Tap a reel to open the full player',
+                              ),
                             ),
                           ),
                       icon: const Icon(Icons.info_outline_rounded),
@@ -120,7 +104,7 @@ class _ReelPageState extends State<ReelPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              widget.file.name,
+                              file.name,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -130,27 +114,17 @@ class _ReelPageState extends State<ReelPage> {
                             ),
                             const SizedBox(height: 7),
                             Text(
-                              '${widget.file.folderName}  •  ${widget.file.extension}',
+                              '${file.folderName}  •  ${file.extension}',
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 12,
                               ),
                             ),
                             const SizedBox(height: 15),
-                            StreamBuilder<bool>(
-                              stream: player.stream.playing,
-                              initialData: player.state.playing,
-                              builder: (context, snapshot) => FilledButton.icon(
-                                onPressed: () => player.playOrPause(),
-                                icon: Icon(
-                                  snapshot.data == true
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                ),
-                                label: Text(
-                                  snapshot.data == true ? 'Pause' : 'Play',
-                                ),
-                              ),
+                            FilledButton.icon(
+                              onPressed: () => openPlayer(context),
+                              icon: const Icon(Icons.play_arrow_rounded),
+                              label: const Text('Open player'),
                             ),
                           ],
                         ),
