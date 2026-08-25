@@ -62,12 +62,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   final aiSubtitleService = AiSubtitleService();
   Timer? _subtitleTimer;
   Timer? _resumeSaveTimer;
+  Timer? _diagnosticSubtitleTimer;
   bool aiSubtitlesEnabled = false;
   String aiSubtitleLanguage = 'English';
   double aiSubtitleFontScale = 1.0;
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
   String? _embeddedSubtitleText;
+  String? _lastSubtitleCueText;
+  bool _hasReceivedSubtitleCue = false;
   int _seekIndicatorSeconds = 0;
   int _seekIndicatorDirection = 1;
   int _seekIndicatorNonce = 0;
@@ -100,9 +103,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final text = lines.join('\n').trim();
       _embeddedSubtitleText = text.isEmpty ? null : text;
       if (text.isEmpty) {
+        _lastSubtitleCueText = null;
         setState(() => _activeCaption = null);
         return;
       }
+      if (text == _lastSubtitleCueText) return;
+      _lastSubtitleCueText = text;
+      _hasReceivedSubtitleCue = true;
+      _diagnosticSubtitleTimer?.cancel();
       final position = player.state.position;
       setState(
         () => _activeCaption = AiCaption(
@@ -126,7 +134,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Future<void> _openMediaAndRestoreResume() async {
     await player.open(Media(widget.file.path), play: true);
     if (!mounted) return;
-    await player.setSubtitleTrack(SubtitleTrack.no());
+    // Keep the embedded track active so MediaKit can emit live subtitle cues.
     final history = await resumeRepository.readPlaybackHistory();
     final entry = history[widget.file.id];
     final resume = entry?.position ?? widget.file.progress;
@@ -246,7 +254,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       aiSubtitleLanguage = values.language;
       aiSubtitleFontScale = values.fontScale;
     });
-    if (aiSubtitlesEnabled) _startSubtitleLoop();
+    if (aiSubtitlesEnabled) {
+      _startSubtitleLoop();
+      _scheduleDiagnosticSubtitle();
+    }
   }
 
   AiSubtitleLanguage get _selectedSubtitleLanguage =>
@@ -274,11 +285,33 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     if (enabled) {
       _startSubtitleLoop();
+      _scheduleDiagnosticSubtitle();
       _showHud('AI CC on', Icons.closed_caption_rounded);
     } else {
       _stopSubtitleLoop();
       _showHud('AI CC off', Icons.closed_caption_disabled_rounded);
     }
+  }
+
+  void _scheduleDiagnosticSubtitle() {
+    _diagnosticSubtitleTimer?.cancel();
+    if (!aiSubtitlesEnabled || aiSubtitleLanguage != 'Bengali') return;
+    _diagnosticSubtitleTimer = Timer(const Duration(milliseconds: 700), () {
+      if (!mounted || !aiSubtitlesEnabled || _hasReceivedSubtitleCue) return;
+      final position = player.state.position;
+      setState(
+        () => _activeCaption = const AiCaption(
+          text: 'AI Subtitle Active (বাংলা)',
+          start: Duration.zero,
+          end: Duration(seconds: 3),
+        ),
+      );
+      Timer(const Duration(seconds: 3), () {
+        if (!mounted || _hasReceivedSubtitleCue) return;
+        final current = player.state.position;
+        if (current >= position) setState(() => _activeCaption = null);
+      });
+    });
   }
 
   Future<void> _setAiSubtitleLanguage(String language) async {
@@ -639,6 +672,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _seekIndicatorTimer?.cancel();
     _subtitleTimer?.cancel();
     _resumeSaveTimer?.cancel();
+    _diagnosticSubtitleTimer?.cancel();
     _sensorSubscription?.cancel();
     _embeddedSubtitleSubscription?.cancel();
     _playingSubscription?.cancel();
