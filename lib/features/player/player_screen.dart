@@ -30,6 +30,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late final VideoController controller;
   Timer? _hideTimer;
   Timer? _statusTimer;
+  Timer? _seekIndicatorTimer;
   StreamSubscription<AccelerometerEvent>? _sensorSubscription;
   bool controlsVisible = true;
   bool locked = false;
@@ -60,6 +61,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
   bool _aiCloudSetupToastShown = false;
+  int _seekIndicatorSeconds = 0;
+  int _seekIndicatorDirection = 1;
+  int _seekIndicatorNonce = 0;
+  bool _seekIndicatorVisible = false;
+  Duration? _queuedSeekPosition;
+  Future<void> _seekQueue = Future<void>.value();
 
   @override
   void initState() {
@@ -411,6 +418,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _hideTimer?.cancel();
     _statusTimer?.cancel();
+    _seekIndicatorTimer?.cancel();
     _subtitleTimer?.cancel();
     _sensorSubscription?.cancel();
     aiSubtitleService.dispose();
@@ -433,6 +441,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleControls() {
     if (locked) return;
+    _hideTimer?.cancel();
     setState(() => controlsVisible = !controlsVisible);
     if (controlsVisible) _armControlsTimer();
   }
@@ -552,23 +561,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _doubleTap(TapDownDetails details, Size size) async {
-    final delta = details.localPosition.dx < size.width / 2
-        ? const Duration(seconds: -10)
-        : const Duration(seconds: 10);
-    final next = player.state.position + delta;
-    await player.seek(
-      Duration(
-        milliseconds: next.inMilliseconds.clamp(
-          0,
-          player.state.duration.inMilliseconds,
-        ),
-      ),
+  void _doubleTap(TapDownDetails details, Size size) {
+    final direction = details.localPosition.dx < size.width / 2 ? -1 : 1;
+    final current = _queuedSeekPosition ?? player.state.position;
+    final requested = current + Duration(seconds: direction * 10);
+    final duration = player.state.duration;
+    final target = Duration(
+      milliseconds: requested.inMilliseconds.clamp(0, duration.inMilliseconds),
     );
-    _showHud(
-      '${delta.isNegative ? '−' : '+'}10s',
-      delta.isNegative ? Icons.replay_10_rounded : Icons.forward_10_rounded,
-    );
+    _queuedSeekPosition = target;
+    _seekQueue = _seekQueue.catchError((_) {}).then((_) async {
+      await player.seek(target);
+      if (_queuedSeekPosition == target) _queuedSeekPosition = null;
+    });
+    _showSeekIndicator(direction: direction);
+  }
+
+  void _showSeekIndicator({required int direction}) {
+    final sameDirection =
+        _seekIndicatorVisible && _seekIndicatorDirection == direction;
+    setState(() {
+      _seekIndicatorDirection = direction;
+      _seekIndicatorSeconds = sameDirection ? _seekIndicatorSeconds + 10 : 10;
+      _seekIndicatorNonce++;
+      _seekIndicatorVisible = true;
+    });
+    _seekIndicatorTimer?.cancel();
+    _seekIndicatorTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _seekIndicatorVisible = false);
+    });
   }
 
   @override
@@ -604,6 +625,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
               if (_seekPreview != null)
                 Center(child: _SeekPreview(position: _seekPreview!)),
+              if (_seekIndicatorVisible)
+                Positioned(
+                  left: _seekIndicatorDirection < 0 ? 28 : null,
+                  right: _seekIndicatorDirection > 0 ? 28 : null,
+                  top: size.height * .36,
+                  child: _SeekIndicator(
+                    key: ValueKey(_seekIndicatorNonce),
+                    direction: _seekIndicatorDirection,
+                    seconds: _seekIndicatorSeconds,
+                  ),
+                ),
               if (aiSubtitlesEnabled && _activeCaption != null)
                 Positioned(
                   left: 20,
@@ -1202,6 +1234,63 @@ class _Hud extends StatelessWidget {
       ],
     ),
   );
+}
+
+class _SeekIndicator extends StatelessWidget {
+  const _SeekIndicator({
+    super.key,
+    required this.direction,
+    required this.seconds,
+  });
+
+  final int direction;
+  final int seconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final forward = direction > 0;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: .72, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutBack,
+      builder: (context, scale, child) =>
+          Transform.scale(scale: scale, child: child),
+      child: Container(
+        width: 118,
+        height: 118,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.black.withValues(alpha: .74),
+          border: Border.all(
+            color: NovaColors.cyan.withValues(alpha: .72),
+            width: 2,
+          ),
+          boxShadow: const [
+            BoxShadow(color: Colors.black54, blurRadius: 14, spreadRadius: 2),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              forward ? Icons.fast_forward_rounded : Icons.fast_rewind_rounded,
+              color: NovaColors.cyan,
+              size: 31,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${forward ? '+' : '−'}${seconds}s',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SeekPreview extends StatelessWidget {
