@@ -99,7 +99,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (!mounted) return;
       final text = lines.join('\n').trim();
       _embeddedSubtitleText = text.isEmpty ? null : text;
-      if (text.isNotEmpty && aiSubtitlesEnabled) _requestSubtitle();
+      if (text.isEmpty) {
+        setState(() => _activeCaption = null);
+        return;
+      }
+      final position = player.state.position;
+      setState(
+        () => _activeCaption = AiCaption(
+          text: text,
+          start: position,
+          end: position + const Duration(seconds: 6),
+        ),
+      );
+      if (aiSubtitlesEnabled) _requestSubtitle();
     });
     _playingSubscription = player.stream.playing.listen((playing) {
       if (!playing) _saveResumePosition();
@@ -118,16 +130,24 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final history = await resumeRepository.readPlaybackHistory();
     final entry = history[widget.file.id];
     final resume = entry?.position ?? widget.file.progress;
-    final duration = player.state.duration > Duration.zero
-        ? player.state.duration
+    final duration = await _waitForMediaDuration();
+    final effectiveDuration = duration > Duration.zero
+        ? duration
         : entry?.totalDuration ?? widget.file.duration;
     if (resume <= const Duration(seconds: 5) ||
-        (duration > Duration.zero &&
-            resume.inMilliseconds * 100 >= duration.inMilliseconds * 95)) {
+        (effectiveDuration > Duration.zero &&
+            resume.inMilliseconds * 100 >=
+                effectiveDuration.inMilliseconds * 95)) {
       _resumeRestored = true;
       return;
     }
+
+    // MediaKit may complete open() before the stream duration is populated.
+    // Pause, apply the saved position after readiness, then explicitly resume.
+    await player.pause();
     await player.seek(resume);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    await player.play();
     _resumeRestored = true;
     if (!mounted) return;
     final label = formatResumeTime(resume);
@@ -144,6 +164,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ),
         ),
       );
+  }
+
+  Future<Duration> _waitForMediaDuration() async {
+    final current = player.state.duration;
+    if (current > Duration.zero) return current;
+    try {
+      return await player.stream.duration
+          .firstWhere((duration) => duration > Duration.zero)
+          .timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      return player.state.duration;
+    } catch (_) {
+      return player.state.duration;
+    }
   }
 
   Future<void> _restartFromBeginning() async {
@@ -225,7 +259,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = enabled;
-      if (!enabled) _activeCaption = null;
+      if (!enabled) {
+        final source = _embeddedSubtitleText;
+        _activeCaption = source == null
+            ? null
+            : AiCaption(
+                text: source,
+                start: player.state.position,
+                end: player.state.position + const Duration(seconds: 6),
+              );
+      }
     });
     await AiSubtitlePreferences.save(enabled: enabled);
     if (!mounted) return;
@@ -822,10 +865,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   final caption = _activeCaption;
                   final position = snapshot.data ?? Duration.zero;
                   final visible =
-                      aiSubtitlesEnabled &&
                       caption != null &&
                       position >= caption.start &&
                       position <= caption.end;
+
                   if (!visible) return const SizedBox.shrink();
                   return Positioned(
                     left: 20,
@@ -835,7 +878,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       child: _AiCaptionPill(
                         text: caption.text,
                         fontScale: aiSubtitleFontScale,
-                        language: aiSubtitleLanguage,
+                        language: aiSubtitlesEnabled
+                            ? aiSubtitleLanguage
+                            : 'Original',
                       ),
                     ),
                   );
