@@ -1,0 +1,50 @@
+name: NovaPlay Android Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-release-apk:
+    name: Analyze, test, and build release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.1'
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Dart code
+        run: flutter analyze
+
+      - name: Run widget tests
+        run: flutter test
+
+      - name: Build split release APKs
+        run: flutter build apk --release --split-per-abi
+
+      - name: Upload release APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: novaplay-release-apks
+          path: build/app/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
