@@ -123,6 +123,8 @@ Capture actions are intentionally local-first: MediaKit’s native screenshot AP
 
 The Private Vault stores imported files under the app’s private support directory and creates `.nomedia` to prevent gallery indexing. Unlocking uses the device’s secure authentication surface; `local_auth` allows biometric authentication with device PIN/passcode/pattern fallback by default. The move workflow copies the chosen file into the vault and attempts to remove the original, while retaining the copy if a document provider disallows deletion.
 
+NovaPlay supports Android Picture-in-Picture on Android 8.0 and newer. The Android activity declares `supportsPictureInPicture`, handles orientation and screen-size configuration changes, and uses the native PiP bridge to preserve the source aspect ratio. The player’s floating button enters PiP explicitly, while minimizing the app during active playback automatically enters PiP. The native window exposes a play/pause toggle and a close action; the latter terminates the task and releases the player through the normal PlayerScreen lifecycle.
+
 The current source is intentionally modular so the next production iteration can add richer playlist persistence, true background-media notification controls, and richer media metadata without rewriting the visual shell. The active folder queue and player-owned MediaKit lifecycle are already implemented in `PlayerScreen`.
 
 ## GitHub Actions

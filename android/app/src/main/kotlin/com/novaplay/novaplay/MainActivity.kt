@@ -2,6 +2,11 @@ package com.novaplay.novaplay
 
 import android.Manifest
 import android.app.PictureInPictureParams
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.graphics.drawable.Icon
 import android.content.ContentUris
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -16,23 +21,49 @@ import android.util.Size
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
+    companion object {
+        private const val PIP_ACTION = "com.novaplay.PIP_ACTION"
+        private const val ACTION_PLAY_PAUSE = "play_pause"
+        private const val ACTION_CLOSE = "close"
+    }
+
     private val playerChannelName = "com.novaplay/player"
     private val mediaChannelName = "com.novaplay/media"
     private val permissionRequestCode = 4012
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var playerChannel: MethodChannel? = null
+    private var pipEnabled = false
+    private var pipPlaying = true
+    private var pipWidth = 16
+    private var pipHeight = 9
+    private val pipActionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.getStringExtra("action")) {
+                ACTION_CLOSE -> finishAndRemoveTask()
+                ACTION_PLAY_PAUSE -> playerChannel?.invokeMethod("pipAction", ACTION_PLAY_PAUSE)
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playerChannelName).setMethodCallHandler { call, result ->
+        playerChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playerChannelName)
+        playerChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
-                "enterPip" -> enterPip(result)
+                "enterPip" -> enterPip(
+                    result,
+                    call.argument<Int>("width"),
+                    call.argument<Int>("height"),
+                )
+                "setPipState" -> setPipState(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -49,14 +80,85 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
-    private fun enterPip(result: MethodChannel.Result) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            enterPictureInPictureMode(
-                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-            )
-            result.success(true)
-        } else {
-            result.error("UNSUPPORTED", "Picture-in-Picture requires Android 8.0 or newer", null)
+    private fun enterPip(
+        result: MethodChannel.Result? = null,
+        width: Int? = null,
+        height: Int? = null,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            result?.error("UNSUPPORTED", "Picture-in-Picture requires Android 8.0 or newer", null)
+            return
+        }
+        if (width != null && height != null && width > 0 && height > 0) {
+            pipWidth = width
+            pipHeight = height
+        }
+        enterPictureInPictureMode(buildPipParams())
+        result?.success(true)
+    }
+
+    private fun setPipState(call: MethodCall, result: MethodChannel.Result) {
+        pipEnabled = call.argument<Boolean>("enabled") ?: false
+        pipPlaying = call.argument<Boolean>("playing") ?: pipPlaying
+        val width = call.argument<Int>("width")
+        val height = call.argument<Int>("height")
+        if (width != null && height != null && width > 0 && height > 0) {
+            pipWidth = width
+            pipHeight = height
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+            setPictureInPictureParams(buildPipParams())
+        }
+        result.success(true)
+    }
+
+    private fun buildPipParams(): PictureInPictureParams {
+        val aspect = (pipWidth.toDouble() / pipHeight.toDouble()).coerceIn(
+            1.0 / 2.39,
+            2.39,
+        )
+        val denominator = 1000
+        val ratio = Rational((aspect * denominator).roundToInt(), denominator)
+        return PictureInPictureParams.Builder()
+            .setAspectRatio(ratio)
+            .setActions(buildPipActions())
+            .build()
+    }
+
+    private fun buildPipActions(): List<android.app.RemoteAction> {
+        val playPauseIntent = PendingIntent.getBroadcast(
+            this,
+            9101,
+            Intent(PIP_ACTION).setPackage(packageName).putExtra("action", ACTION_PLAY_PAUSE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val closeIntent = PendingIntent.getBroadcast(
+            this,
+            9102,
+            Intent(PIP_ACTION).setPackage(packageName).putExtra("action", ACTION_CLOSE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val playPauseIcon = if (pipPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        return listOf(
+            android.app.RemoteAction(
+                Icon.createWithResource(this, playPauseIcon),
+                if (pipPlaying) "Pause" else "Play",
+                if (pipPlaying) "Pause NovaPlay" else "Play NovaPlay",
+                playPauseIntent,
+            ),
+            android.app.RemoteAction(
+                Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                "Close",
+                "Close NovaPlay",
+                closeIntent,
+            ),
+        )
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (pipEnabled && pipPlaying && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isInPictureInPictureMode) {
+            enterPip()
         }
     }
 
@@ -232,7 +334,19 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        val filter = IntentFilter(PIP_ACTION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(pipActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(pipActionReceiver, filter)
+        }
+    }
+
     override fun onDestroy() {
+        runCatching { unregisterReceiver(pipActionReceiver) }
+        pipEnabled = false
         executor.shutdownNow()
         super.onDestroy()
     }

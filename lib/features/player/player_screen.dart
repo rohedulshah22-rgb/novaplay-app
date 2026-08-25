@@ -99,6 +99,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (_queueIndex < 0) _queueIndex = 0;
     player = Player(configuration: const PlayerConfiguration(pitch: true));
     controller = VideoController(player);
+    _pipChannel.setMethodCallHandler(_handlePipCall);
     _openMediaAndRestoreResume();
     _loadAiSubtitlePreferences();
     WakelockPlus.enable();
@@ -137,6 +138,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
     _playingSubscription = player.stream.playing.listen((playing) {
       if (!playing) _saveResumePosition();
+      unawaited(_updatePipState(playing));
     });
     _completionSubscription = player.stream.completed.listen((completed) {
       if (completed) _playQueueOffset(1, automatic: true);
@@ -788,6 +790,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _embeddedSubtitleSubscription?.cancel();
     _playingSubscription?.cancel();
     _completionSubscription?.cancel();
+    _pipChannel.setMethodCallHandler(null);
     _queueIndicatorTimer?.cancel();
     _saveResumePosition(updateLibrary: false);
     aiSubtitleService.dispose();
@@ -1136,9 +1139,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
+  Future<void> _handlePipCall(MethodCall call) async {
+    if (call.method != 'pipAction' || call.arguments != 'play_pause') {
+      return;
+    }
+    await player.playOrPause();
+    await _updatePipState(player.state.playing);
+  }
+
+  Future<void> _updatePipState(bool playing) async {
+    final width = player.state.width;
+    final height = player.state.height;
+    try {
+      await _pipChannel.invokeMethod('setPipState', {
+        'enabled': true,
+        'playing': playing,
+        if (width != null && height != null && width > 0 && height > 0)
+          'width': width,
+        if (width != null && height != null && width > 0 && height > 0)
+          'height': height,
+      });
+    } on PlatformException {
+      // PiP is optional; playback must remain unaffected if unavailable.
+    }
+  }
+
   Future<void> _enterPip() async {
     try {
-      await _pipChannel.invokeMethod('enterPip');
+      await _updatePipState(player.state.playing);
+      await _pipChannel.invokeMethod('enterPip', {
+        'width': player.state.width ?? 16,
+        'height': player.state.height ?? 9,
+      });
     } on PlatformException {
       if (mounted) {
         _showHud('PiP unavailable', Icons.picture_in_picture_alt_outlined);
