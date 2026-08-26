@@ -38,6 +38,7 @@ dependencies:
   local_auth: ^3.0.2
   ffmpeg_kit_flutter_new: ^4.6.2
   saver_gallery: ^5.1.0
+  flutter_tts: ^4.2.5
 
 dev_dependencies:
   flutter_test:

@@ -6,6 +6,7 @@ class AiSubtitlePreferences {
   static const enabledKey = 'novaplay.ai_subtitles.enabled.v1';
   static const languageKey = 'novaplay.ai_subtitles.language.v1';
   static const fontScaleKey = 'novaplay.ai_subtitles.font_scale.v1';
+  static const aiDubbingEnabledKey = 'isAiDubbingEnabled';
 
   static const languages = <AiSubtitleLanguage>[
     AiSubtitleLanguage(code: 'en', label: 'English'),
@@ -29,6 +30,7 @@ class AiSubtitlePreferences {
         : 'English';
     return AiSubtitlePreferenceValues(
       enabled: prefs.getBool(enabledKey) ?? false,
+      aiDubbingEnabled: prefs.getBool(aiDubbingEnabledKey) ?? false,
       language: language,
       fontScale: (prefs.getDouble(fontScaleKey) ?? 1.0).clamp(.8, 1.8),
     );
@@ -36,11 +38,15 @@ class AiSubtitlePreferences {
 
   static Future<void> save({
     bool? enabled,
+    bool? aiDubbingEnabled,
     String? language,
     double? fontScale,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     if (enabled != null) await prefs.setBool(enabledKey, enabled);
+    if (aiDubbingEnabled != null) {
+      await prefs.setBool(aiDubbingEnabledKey, aiDubbingEnabled);
+    }
     if (language != null) await prefs.setString(languageKey, language);
     if (fontScale != null) {
       await prefs.setDouble(fontScaleKey, fontScale.clamp(.8, 1.8));
@@ -58,11 +64,13 @@ class AiSubtitleLanguage {
 class AiSubtitlePreferenceValues {
   const AiSubtitlePreferenceValues({
     required this.enabled,
+    required this.aiDubbingEnabled,
     required this.language,
     required this.fontScale,
   });
 
   final bool enabled;
+  final bool aiDubbingEnabled;
   final String language;
   final double fontScale;
 }

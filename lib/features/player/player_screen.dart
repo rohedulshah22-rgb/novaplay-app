@@ -8,6 +8,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:volume_controller/volume_controller.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -63,7 +64,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String systemTime = '';
   final captureService = const CaptureService();
   final aiSubtitleService = AiSubtitleService();
+  final FlutterTts _dubbingTts = FlutterTts();
   Timer? _subtitleTimer;
+  bool aiDubbingEnabled = false;
+  String? _lastDubbedCaption;
+  double? _dubbingRestorationVolume;
+  int _dubbingRequestId = 0;
   Timer? _resumeSaveTimer;
   Timer? _diagnosticSubtitleTimer;
   bool aiSubtitlesEnabled = false;
@@ -128,7 +134,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _lastSubtitleCueText = text;
       _hasReceivedSubtitleCue = true;
       _diagnosticSubtitleTimer?.cancel();
-      if (aiSubtitlesEnabled) {
+      if (aiSubtitlesEnabled || aiDubbingEnabled) {
         // Do not render the source cue here: AI CC must show only the
         // translated result, never a source-language flash.
         _requestSubtitle();
@@ -366,12 +372,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = values.enabled;
+      aiDubbingEnabled = values.aiDubbingEnabled;
       aiSubtitleLanguage = values.language;
       aiSubtitleFontScale = values.fontScale;
     });
-    if (aiSubtitlesEnabled) {
+    if (aiDubbingEnabled) unawaited(_configureDubbingTts());
+    if (aiSubtitlesEnabled || aiDubbingEnabled) {
       _startSubtitleLoop();
-      _scheduleDiagnosticSubtitle();
+      if (aiSubtitlesEnabled) _scheduleDiagnosticSubtitle();
     }
   }
 
@@ -400,7 +408,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _scheduleDiagnosticSubtitle();
       _showHud('AI CC on', Icons.closed_caption_rounded);
     } else {
-      _stopSubtitleLoop();
+      if (!aiDubbingEnabled) _stopSubtitleLoop();
       _diagnosticSubtitleTimer?.cancel();
       await player.setSubtitleTrack(_selectedNativeSubtitleTrack);
       if (!mounted) return;
@@ -455,7 +463,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _requestSubtitle() async {
-    if (!aiSubtitlesEnabled || _subtitleRequestInFlight) return;
+    if ((!aiSubtitlesEnabled && !aiDubbingEnabled) ||
+        _subtitleRequestInFlight) {
+      return;
+    }
     _subtitleRequestInFlight = true;
     try {
       final result = await aiSubtitleService.recognizeAndTranslate(
@@ -464,9 +475,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         language: _selectedSubtitleLanguage,
         sourceText: _embeddedSubtitleText,
       );
-      if (!mounted || !aiSubtitlesEnabled) return;
+      if (!mounted || (!aiSubtitlesEnabled && !aiDubbingEnabled)) return;
       if (result.caption != null) {
-        setState(() => _activeCaption = result.caption);
+        final caption = result.caption!;
+        if (aiSubtitlesEnabled) setState(() => _activeCaption = caption);
+        if (aiDubbingEnabled) unawaited(_speakDubbingCaption(caption));
       }
     } on AiSubtitleException {
       // Direct cue translation is best-effort; keep playback unobstructed.
@@ -477,8 +490,126 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
+  Future<void> _configureDubbingTts() async {
+    try {
+      await _dubbingTts.awaitSpeakCompletion(true);
+      await _dubbingTts.setLanguage(_selectedSubtitleLanguage.code);
+      await _dubbingTts.setVolume(1.0);
+    } catch (_) {
+      // The device TTS engine may not expose every selected language.
+    }
+  }
+
+  Future<void> _speakDubbingCaption(AiCaption caption) async {
+    if (!aiDubbingEnabled || caption.text.trim().isEmpty) return;
+    final requestId = ++_dubbingRequestId;
+    final text = caption.text.trim();
+    if (text == _lastDubbedCaption) return;
+    _lastDubbedCaption = text;
+    try {
+      await _dubbingTts.stop();
+      if (!aiDubbingEnabled || requestId != _dubbingRequestId) return;
+      final cueDuration = caption.end - caption.start;
+      final durationSeconds = cueDuration.inMilliseconds / 1000;
+      if (durationSeconds <= 0) return;
+      final charactersPerSecondAtBaseRate = 12.0;
+      final targetRate =
+          (text.length / durationSeconds) / charactersPerSecondAtBaseRate;
+      final speechRate = (targetRate * .48).clamp(.2, .85).toDouble();
+      await _dubbingTts.setSpeechRate(speechRate);
+      try {
+        await _dubbingTts.setLanguage(_selectedSubtitleLanguage.code);
+      } catch (_) {}
+      _dubbingRestorationVolume ??= player.state.volume;
+      await player.setVolume((_dubbingRestorationVolume! * .25).clamp(0, 100));
+      await _dubbingTts.speak(text);
+    } catch (_) {
+      // TTS is experimental and must never interrupt video playback.
+    } finally {
+      if (requestId == _dubbingRequestId) {
+        await _restoreDubbingVolume();
+      }
+    }
+  }
+
+  Future<void> _restoreDubbingVolume() async {
+    final volume = _dubbingRestorationVolume;
+    _dubbingRestorationVolume = null;
+    if (volume == null || _playerDisposed) return;
+    try {
+      await player.setVolume(volume);
+    } catch (_) {}
+  }
+
+  Future<void> _setAiDubbingEnabled(bool enabled) async {
+    if (!mounted) return;
+    if (!enabled) {
+      _dubbingRequestId++;
+      _lastDubbedCaption = null;
+      try {
+        await _dubbingTts.stop();
+      } catch (_) {}
+      await _restoreDubbingVolume();
+    }
+    setState(() => aiDubbingEnabled = enabled);
+    await AiSubtitlePreferences.save(aiDubbingEnabled: enabled);
+    if (enabled) {
+      await _configureDubbingTts();
+      if (!aiSubtitlesEnabled) _startSubtitleLoop();
+      _showHud('AI dubbing on', Icons.record_voice_over_rounded);
+    } else if (!aiSubtitlesEnabled) {
+      _stopSubtitleLoop();
+    }
+  }
+
+  Future<bool> _confirmAiDubbingEnable(BuildContext dialogContext) async {
+    final confirmed = await showDialog<bool>(
+      context: dialogContext,
+      builder: (context) => AlertDialog(
+        title: const Text('Feature Under Creation'),
+        content: const Text(
+          'এই ফিচারটি বর্তমানে আন্ডার ক্রিয়েশন প্রসেসিং '
+          '(Under Creation / Testing) রয়েছে। ডায়লগের স্বাভাবিক গতি বা '
+          'ভয়েসের টোন কিছুটা রোবোটিক হতে পারে। আপনি কি এটি চালু করতে চান?\n\n'
+          'This feature is currently under creation/processing. Voice timing '
+          'and tone may vary. Do you want to proceed?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel / বাতিল'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Enable Anyway / চালু করুন'),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  Future<void> _handleAiDubbingToggle({
+    required BuildContext dialogContext,
+    required bool value,
+    required ValueChanged<bool> updateSheet,
+  }) async {
+    if (!value) {
+      updateSheet(false);
+      await _setAiDubbingEnabled(false);
+      return;
+    }
+    // Deliberately keep the switch off while the confirmation dialog is open.
+    updateSheet(false);
+    final confirmed = await _confirmAiDubbingEnable(dialogContext);
+    if (!confirmed || !mounted) return;
+    updateSheet(true);
+    await _setAiDubbingEnabled(true);
+  }
+
   void _showAiSubtitleSettings() {
     var enabled = aiSubtitlesEnabled;
+    var dubbingEnabled = aiDubbingEnabled;
     var language = aiSubtitleLanguage;
     var fontScale = aiSubtitleFontScale;
     showModalBottomSheet<void>(
@@ -507,6 +638,26 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 setSheetState(() => enabled = value);
                 _setAiSubtitlesEnabled(value);
               },
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: dubbingEnabled,
+              title: const Text('AI Voice Dubbing (Beta)'),
+              subtitle: const Text(
+                'Offline TTS with subtitle-timed audio ducking',
+              ),
+              secondary: Icon(
+                dubbingEnabled
+                    ? Icons.record_voice_over_rounded
+                    : Icons.voice_over_off_rounded,
+                color: dubbingEnabled ? NovaColors.violet : Colors.white54,
+              ),
+              onChanged: (value) => _handleAiDubbingToggle(
+                dialogContext: context,
+                value: value,
+                updateSheet: (next) =>
+                    setSheetState(() => dubbingEnabled = next),
+              ),
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -789,6 +940,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _subtitleTimer?.cancel();
     _resumeSaveTimer?.cancel();
     _diagnosticSubtitleTimer?.cancel();
+    _dubbingRequestId++;
+    unawaited(_dubbingTts.stop());
+    if (_dubbingRestorationVolume != null) {
+      unawaited(_restoreDubbingVolume());
+    }
     _sensorSubscription?.cancel();
     _embeddedSubtitleSubscription?.cancel();
     _playingSubscription?.cancel();
@@ -1197,10 +1353,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       showDragHandle: true,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _PlayerOptions(
-        player: player,
-        onSubtitle: _showEmbeddedSubtitleTracks,
-      ),
+      builder: (_) {
+        var dubbingEnabled = aiDubbingEnabled;
+        return StatefulBuilder(
+          builder: (context, setSheetState) => _PlayerOptions(
+            player: player,
+            aiDubbingEnabled: dubbingEnabled,
+            onSubtitle: _showEmbeddedSubtitleTracks,
+            onAiDubbingChanged: (value) => _handleAiDubbingToggle(
+              dialogContext: context,
+              value: value,
+              updateSheet: (next) => setSheetState(() => dubbingEnabled = next),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1909,9 +2076,16 @@ class _SeekPreview extends StatelessWidget {
 }
 
 class _PlayerOptions extends StatelessWidget {
-  const _PlayerOptions({required this.player, required this.onSubtitle});
+  const _PlayerOptions({
+    required this.player,
+    required this.onSubtitle,
+    required this.aiDubbingEnabled,
+    required this.onAiDubbingChanged,
+  });
   final Player player;
   final VoidCallback onSubtitle;
+  final bool aiDubbingEnabled;
+  final ValueChanged<bool> onAiDubbingChanged;
   @override
   Widget build(BuildContext context) {
     final landscape =
@@ -1936,6 +2110,20 @@ class _PlayerOptions extends StatelessWidget {
           '${player.state.tracks.subtitle.length} embedded tracks found',
         ),
         onTap: onSubtitle,
+      ),
+      SwitchListTile.adaptive(
+        dense: landscape,
+        contentPadding: EdgeInsets.zero,
+        value: aiDubbingEnabled,
+        title: const Text('AI Voice Dubbing (Beta)'),
+        subtitle: const Text('Offline TTS with subtitle-timed ducking'),
+        secondary: Icon(
+          aiDubbingEnabled
+              ? Icons.record_voice_over_rounded
+              : Icons.voice_over_off_rounded,
+          color: aiDubbingEnabled ? NovaColors.violet : Colors.white54,
+        ),
+        onChanged: onAiDubbingChanged,
       ),
       ListTile(
         dense: landscape,
