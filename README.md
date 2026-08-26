@@ -136,7 +136,7 @@ The current source is intentionally modular so the next production iteration can
 
 ## GitHub Actions
 
-`.github/workflows/build.yml` runs on pushes and pull requests targeting `main`, as well as manual dispatches. It resolves dependencies, checks formatting, runs `flutter analyze`, runs widget tests, builds split release APKs, and uploads the generated APKs as a workflow artifact named `novaplay-release-apks`.
+`.github/workflows/build.yml` runs on pushes and pull requests targeting `main`, as well as manual dispatches. It resolves dependencies, checks formatting, runs `flutter analyze`, runs widget tests, builds only the production Android App Bundle with `flutter build appbundle --release`, and uploads `build/app/outputs/bundle/release/app-release.aab` as the `novaplay-production-aab` artifact.
 
 ## References
 
@@ -158,3 +158,4 @@ The current source is intentionally modular so the next production iteration can
 [16]: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_VISUAL_USER_SELECTED "READ_MEDIA_VISUAL_USER_SELECTED permission"
 [17]: https://platform.openai.com/docs/guides/speech-to-text "OpenAI speech-to-text guide"
 [18]: https://platform.openai.com/docs/api-reference/audio/createTranscription "OpenAI transcription API reference"
+[19]: https://pub.dev/packages/flutter_tts "flutter_tts package documentation"
