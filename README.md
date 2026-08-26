@@ -136,7 +136,7 @@ The current source is intentionally modular so the next production iteration can
 
 ## GitHub Actions
 
-`.github/workflows/build.yml` runs on pushes and pull requests targeting `main`, as well as manual dispatches. It resolves dependencies, checks formatting, runs `flutter analyze`, runs widget tests, builds only the production Android App Bundle with `flutter build appbundle --release`, and uploads `build/app/outputs/bundle/release/app-release.aab` as the `novaplay-production-aab` artifact.
+`.github/workflows/build.yml` runs on pushes and pull requests targeting `main`, as well as manual dispatches. It resolves dependencies, checks formatting, runs `flutter analyze`, runs widget tests, builds split release APKs with `flutter build apk --release --split-per-abi`, and uploads the generated ABI APKs as `novaplay-release-apks`; the primary phone build is `app-arm64-v8a-release.apk`.
 
 ## References
 

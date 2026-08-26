@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  build-release-aab:
-    name: Analyze, test, and build production Android App Bundle
+  build-release-apk:
+    name: Analyze, test, and build split release APKs
     runs-on: ubuntu-latest
 
     steps:
@@ -47,15 +47,15 @@ jobs:
       - name: Run widget tests
         run: flutter test
 
-      - name: Build production Android App Bundle
+      - name: Build split release APKs
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
-        run: flutter build appbundle --release
+        run: flutter build apk --release --split-per-abi
 
-      - name: Upload production app bundle
+      - name: Upload split release APKs
         uses: actions/upload-artifact@v4
         with:
-          name: novaplay-production-aab
-          path: build/app/outputs/bundle/release/app-release.aab
+          name: novaplay-release-apks
+          path: build/app/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
