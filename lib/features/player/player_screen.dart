@@ -18,6 +18,7 @@ import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
 import 'ai_subtitle_preferences.dart';
 import 'ai_subtitle_service.dart';
+import 'language_names.dart';
 import 'capture_service.dart';
 import 'precision_scrubber.dart';
 
@@ -72,6 +73,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _subtitleRequestInFlight = false;
   String? _embeddedSubtitleText;
   String? _lastSubtitleCueText;
+  SubtitleTrack _selectedNativeSubtitleTrack = SubtitleTrack.no();
   bool _hasReceivedSubtitleCue = false;
   int _seekIndicatorSeconds = 0;
   int _seekIndicatorDirection = 1;
@@ -119,22 +121,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _embeddedSubtitleText = text.isEmpty ? null : text;
       if (text.isEmpty) {
         _lastSubtitleCueText = null;
-        setState(() => _activeCaption = null);
+        if (aiSubtitlesEnabled) setState(() => _activeCaption = null);
         return;
       }
       if (text == _lastSubtitleCueText) return;
       _lastSubtitleCueText = text;
       _hasReceivedSubtitleCue = true;
       _diagnosticSubtitleTimer?.cancel();
-      final position = player.state.position;
-      setState(
-        () => _activeCaption = AiCaption(
-          text: text,
-          start: position,
-          end: position + const Duration(seconds: 6),
-        ),
-      );
-      if (aiSubtitlesEnabled) _requestSubtitle();
+      if (aiSubtitlesEnabled) {
+        // Do not render the source cue here: AI CC must show only the
+        // translated result, never a source-language flash.
+        _requestSubtitle();
+      }
     });
     _playingSubscription = player.stream.playing.listen((playing) {
       if (!playing) _saveResumePosition();
@@ -171,8 +169,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
     await player.open(playlist, play: true);
     await player.setPlaylistMode(PlaylistMode.none);
+    _selectedNativeSubtitleTrack = SubtitleTrack.no();
+    await player.setSubtitleTrack(_selectedNativeSubtitleTrack);
     if (!mounted) return;
-    // Keep the embedded track active so MediaKit can emit live subtitle cues.
+    // Native subtitles stay off until the user selects a track. Once selected,
+    // AI CC hides only native drawing while retaining MediaKit cue delivery.
     await _restoreResumeForCurrent(showFeedback: true);
   }
 
@@ -232,6 +233,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _resetCurrentItemSubtitleState() {
+    _selectedNativeSubtitleTrack = SubtitleTrack.auto();
     _embeddedSubtitleText = null;
     _lastSubtitleCueText = null;
     _hasReceivedSubtitleCue = false;
@@ -261,6 +263,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _resetCurrentItemSubtitleState();
       if (mounted) setState(() {});
       await player.jump(nextIndex);
+      _selectedNativeSubtitleTrack = player.state.track.subtitle;
       await _restoreResumeForCurrent(showFeedback: false);
     } finally {
       _queueTransitioning = false;
@@ -382,17 +385,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = enabled;
-      if (!enabled) {
-        final source = _embeddedSubtitleText;
-        _activeCaption = source == null
-            ? null
-            : AiCaption(
-                text: source,
-                start: player.state.position,
-                end: player.state.position + const Duration(seconds: 6),
-              );
-      }
+      if (!enabled) _activeCaption = null;
     });
+    if (enabled) {
+      // Keep the selected native track active so MediaKit continues emitting
+      // live cues, but hide only its renderer through the Video widget above.
+      _lastSubtitleCueText = null;
+      _hasReceivedSubtitleCue = false;
+    }
     await AiSubtitlePreferences.save(enabled: enabled);
     if (!mounted) return;
     if (enabled) {
@@ -401,6 +401,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _showHud('AI CC on', Icons.closed_caption_rounded);
     } else {
       _stopSubtitleLoop();
+      _diagnosticSubtitleTimer?.cancel();
+      await player.setSubtitleTrack(_selectedNativeSubtitleTrack);
+      if (!mounted) return;
       _showHud('AI CC off', Icons.closed_caption_disabled_rounded);
     }
   }
@@ -997,6 +1000,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       fit: _videoFit,
                       aspectRatio: _videoAspectRatio,
                       controls: NoVideoControls,
+                      subtitleViewConfiguration: SubtitleViewConfiguration(
+                        visible: !aiSubtitlesEnabled,
+                      ),
                     ),
                   ),
                 ),
@@ -1220,6 +1226,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             title: const Text('None / Turn Off Subtitles'),
             subtitle: const Text('Hide embedded subtitle output'),
             onTap: () async {
+              _selectedNativeSubtitleTrack = SubtitleTrack.no();
+              _embeddedSubtitleText = null;
+              _lastSubtitleCueText = null;
+              _hasReceivedSubtitleCue = false;
+              _activeCaption = null;
               await player.setSubtitleTrack(SubtitleTrack.no());
               if (!sheetContext.mounted) return;
               Navigator.pop(sheetContext);
@@ -1243,6 +1254,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     : 'Embedded · ${entry.value.codec}',
               ),
               onTap: () async {
+                _selectedNativeSubtitleTrack = entry.value;
                 await player.setSubtitleTrack(entry.value);
                 if (!sheetContext.mounted) return;
                 Navigator.pop(sheetContext);
@@ -1322,44 +1334,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
   }
 
-  String _subtitleTrackLabel(SubtitleTrack track) {
-    const names = {
-      'ar': 'Arabic',
-      'ara': 'Arabic',
-      'bn': 'Bengali',
-      'ben': 'Bengali',
-      'zh': 'Chinese',
-      'zho': 'Chinese',
-      'de': 'German',
-      'deu': 'German',
-      'en': 'English',
-      'eng': 'English',
-      'es': 'Spanish',
-      'spa': 'Spanish',
-      'fr': 'French',
-      'fra': 'French',
-      'hi': 'Hindi',
-      'hin': 'Hindi',
-      'ja': 'Japanese',
-      'jpn': 'Japanese',
-      'ko': 'Korean',
-      'kor': 'Korean',
-      'pt': 'Portuguese',
-      'por': 'Portuguese',
-    };
-    final rawLanguage = track.language?.trim();
-    final language = rawLanguage == null || rawLanguage.isEmpty
-        ? null
-        : names[rawLanguage.toLowerCase()] ?? rawLanguage;
-    final title = track.title?.trim();
-    if (title != null && title.isNotEmpty && language != null) {
-      if (title.toLowerCase() == rawLanguage?.toLowerCase()) return language;
-      return '$title · $language';
-    }
-    if (title != null && title.isNotEmpty) return title;
-    if (language != null) return language;
-    return 'Subtitle track';
-  }
+  String _subtitleTrackLabel(SubtitleTrack track) =>
+      trackLanguageLabel(title: track.title, language: track.language);
 
   Future<void> _pickSubtitle() async {
     final file = await FilePicker.pickFile(
@@ -1367,9 +1343,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       allowedExtensions: ['srt', 'vtt', 'ass', 'ssa'],
     );
     if (file?.path == null) return;
-    await player.setSubtitleTrack(
-      SubtitleTrack.uri(file!.path!, title: file.name, language: 'und'),
+    final externalTrack = SubtitleTrack.uri(
+      file!.path!,
+      title: file.name,
+      language: 'und',
     );
+    _selectedNativeSubtitleTrack = externalTrack;
+    await player.setSubtitleTrack(externalTrack);
     if (mounted) {
       _showHud('External subtitles selected', Icons.subtitles_rounded);
     }
@@ -2061,12 +2041,22 @@ class _PlayerOptions extends StatelessWidget {
                 Navigator.pop(context);
               },
             ),
-            ...tracks.map(
-              (track) => ListTile(
-                title: Text(track.title ?? track.language ?? 'Track'),
+            ...tracks.asMap().entries.map(
+              (entry) => ListTile(
+                title: Text(
+                  trackLanguageLabel(
+                    title: entry.value.title,
+                    language: entry.value.language,
+                  ),
+                ),
+                subtitle: Text(
+                  entry.value.codec == null
+                      ? 'Embedded audio track ${entry.key + 1}'
+                      : 'Embedded · ${entry.value.codec}',
+                ),
                 leading: const Icon(Icons.audiotrack),
                 onTap: () {
-                  player.setAudioTrack(track);
+                  player.setAudioTrack(entry.value);
                   Navigator.pop(context);
                 },
               ),
