@@ -69,6 +69,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool aiDubbingEnabled = false;
   String? _lastDubbedCaption;
   double? _dubbingRestorationVolume;
+  Duration? _dubbingCueEnd;
+  bool _dubbingSpeechActive = false;
+  Completer<void>? _dubbingSpeechCompleter;
   int _dubbingRequestId = 0;
   Timer? _resumeSaveTimer;
   Timer? _diagnosticSubtitleTimer;
@@ -245,6 +248,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _hasReceivedSubtitleCue = false;
     _activeCaption = null;
     _subtitleRequestInFlight = false;
+    _dubbingRequestId++;
+    _lastDubbedCaption = null;
+    _dubbingSpeechActive = false;
+    _dubbingSpeechCompleter = null;
+    _dubbingCueEnd = null;
+    unawaited(_dubbingTts.stop());
+    unawaited(_restoreDubbingVolume());
   }
 
   Future<void> _playQueueOffset(int offset, {bool automatic = false}) async {
@@ -438,6 +448,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _setAiSubtitleLanguage(String language) async {
+    _lastDubbedCaption = null;
     setState(() => aiSubtitleLanguage = language);
     await AiSubtitlePreferences.save(language: language);
     if (aiSubtitlesEnabled) _requestSubtitle();
@@ -500,33 +511,70 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
 
+  String _sanitizeDubbingText(String input) {
+    final withoutAnnotations = input
+        .replaceAll(RegExp(r'(\[[^\]]*\]|\([^)]*\)|\{[^}]*\})'), ' ')
+        .replaceAll(RegExp(r'[♪♫]+'), ' ');
+    return withoutAnnotations.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  Future<void> _finishNearCompleteDubbingSpeech() async {
+    if (!_dubbingSpeechActive || _dubbingCueEnd == null) return;
+    final remaining = _dubbingCueEnd! - player.state.position;
+    if (remaining < Duration.zero ||
+        remaining > const Duration(milliseconds: 300)) {
+      return;
+    }
+    final completer = _dubbingSpeechCompleter;
+    if (completer == null) return;
+    try {
+      await completer.future.timeout(const Duration(milliseconds: 300));
+    } on TimeoutException {
+      // Do not delay the next cue indefinitely if the engine stalls.
+    }
+  }
+
   Future<void> _speakDubbingCaption(AiCaption caption) async {
-    if (!aiDubbingEnabled || caption.text.trim().isEmpty) return;
-    final requestId = ++_dubbingRequestId;
-    final text = caption.text.trim();
+    if (!aiDubbingEnabled) return;
+    final text = _sanitizeDubbingText(caption.text);
+    if (text.isEmpty) return;
     if (text == _lastDubbedCaption) return;
+    final cueDuration = caption.end - caption.start;
+    final durationSeconds = cueDuration.inMilliseconds / 1000;
+    if (durationSeconds <= 0) return;
     _lastDubbedCaption = text;
+    final requestId = ++_dubbingRequestId;
+    await _finishNearCompleteDubbingSpeech();
     try {
       await _dubbingTts.stop();
       if (!aiDubbingEnabled || requestId != _dubbingRequestId) return;
-      final cueDuration = caption.end - caption.start;
-      final durationSeconds = cueDuration.inMilliseconds / 1000;
-      if (durationSeconds <= 0) return;
-      final charactersPerSecondAtBaseRate = 12.0;
-      final targetRate =
-          (text.length / durationSeconds) / charactersPerSecondAtBaseRate;
-      final speechRate = (targetRate * .48).clamp(.2, .85).toDouble();
-      await _dubbingTts.setSpeechRate(speechRate);
+      final wordCount = RegExp(r'\S+').allMatches(text).length;
+      final estimatedTimeNeeded = (wordCount == 0 ? 1 : wordCount) * .35;
+      final targetRate = (estimatedTimeNeeded / durationSeconds)
+          .clamp(.9, 1.65)
+          .toDouble();
+      await _dubbingTts.setSpeechRate(targetRate);
       try {
         await _dubbingTts.setLanguage(_selectedSubtitleLanguage.code);
       } catch (_) {}
       _dubbingRestorationVolume ??= player.state.volume;
       await player.setVolume((_dubbingRestorationVolume! * .25).clamp(0, 100));
-      await _dubbingTts.speak(text);
+      final speechCompleter = Completer<void>();
+      _dubbingSpeechCompleter = speechCompleter;
+      _dubbingSpeechActive = true;
+      _dubbingCueEnd = caption.end;
+      try {
+        await _dubbingTts.speak(text);
+      } finally {
+        if (!speechCompleter.isCompleted) speechCompleter.complete();
+      }
     } catch (_) {
       // TTS is experimental and must never interrupt video playback.
     } finally {
       if (requestId == _dubbingRequestId) {
+        _dubbingSpeechActive = false;
+        _dubbingSpeechCompleter = null;
+        _dubbingCueEnd = null;
         await _restoreDubbingVolume();
       }
     }
