@@ -4,6 +4,6 @@
     <item>
         <bitmap
             android:gravity="center"
-            android:src="@drawable/novaplay_logo" />
+            android:src="@mipmap/ic_launcher" />
     </item>
 </layer-list>

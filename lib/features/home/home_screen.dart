@@ -324,7 +324,7 @@ class _Header extends StatelessWidget {
       ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Image.asset(
-          'assets/novaplay_logo.png',
+          'assets/icons/app_icon.png',
           width: 42,
           height: 42,
           fit: BoxFit.cover,
