@@ -1,5 +1,10 @@
 # NovaPlay
 
+## Official launcher icon
+
+NovaPlay uses the **Nebula-Play Glowing Triangle** launcher mark: a dark AMOLED squircle with an electric cyan-to-purple play triangle. The editable vector master is `assets/icons/app_icon.svg`; `assets/icons/play_foreground.svg` is the transparent adaptive-icon foreground. The PNG companions are generated deterministically with `tooling/render_app_icon.sh`, then `flutter_launcher_icons` creates the Android mdpi, hdpi, xhdpi, xxhdpi, and xxxhdpi resources from `pubspec.yaml`.
+
+
 NovaPlay is a dark-first, offline Android video player built with Flutter. Current release: **1.0.2+3**. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
 
 ## Included product surface

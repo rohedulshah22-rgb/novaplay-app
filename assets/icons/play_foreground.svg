@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="play" x1="294" y1="258" x2="784" y2="754" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22F5FF"/>
+      <stop offset="0.46" stop-color="#18C9F4"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="360" y1="294" x2="678" y2="646" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.62"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="176" y="164" width="672" height="696" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <filter id="softGlow" x="202" y="192" width="620" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="11"/>
+    </filter>
+    <filter id="shadow" x="222" y="216" width="580" height="626" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#02030A" flood-opacity="0.72"/>
+    </filter>
+  </defs>
+
+  <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="#18DDF5" fill-opacity="0.42" filter="url(#glow)"/>
+  <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="#8B5CF6" fill-opacity="0.46" filter="url(#softGlow)"/>
+  <g filter="url(#shadow)">
+    <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="url(#play)"/>
+    <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="url(#sheen)"/>
+    <path d="M300 276C290 270 280 277 280 289V735C280 747 290 754 300 748L707 519C719 512 719 496 707 489L300 276Z" stroke="#D8FDFF" stroke-opacity="0.44" stroke-width="3"/>
+  </g>
+</svg>

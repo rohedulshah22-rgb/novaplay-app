@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="92" y1="64" x2="936" y2="976" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11182C"/>
+      <stop offset="0.52" stop-color="#080C1B"/>
+      <stop offset="1" stop-color="#05060D"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(520 510) rotate(90) scale(390)">
+      <stop stop-color="#7C3AED" stop-opacity="0.25"/>
+      <stop offset="0.55" stop-color="#2563EB" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#05060D" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="play" x1="294" y1="258" x2="784" y2="754" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22F5FF"/>
+      <stop offset="0.46" stop-color="#18C9F4"/>
+      <stop offset="1" stop-color="#A855F7"/>
+    </linearGradient>
+    <linearGradient id="playSheen" x1="360" y1="294" x2="678" y2="646" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.62"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="outerGlow" x="176" y="164" width="672" height="696" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+    <filter id="softGlow" x="202" y="192" width="620" height="640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="shadow" x="222" y="216" width="580" height="626" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#02030A" flood-opacity="0.76"/>
+    </filter>
+    <clipPath id="squircleClip">
+      <rect x="48" y="48" width="928" height="928" rx="228"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1024" height="1024" fill="#02030A"/>
+  <rect x="48" y="48" width="928" height="928" rx="228" fill="url(#bg)"/>
+  <g clip-path="url(#squircleClip)">
+    <rect x="48" y="48" width="928" height="928" fill="url(#halo)"/>
+    <path d="M48 270C238 178 420 160 610 194C765 222 884 294 976 388V48H48V270Z" fill="#263A70" fill-opacity="0.13"/>
+    <path d="M48 826C278 910 516 908 742 812C832 774 910 718 976 642V976H48V826Z" fill="#7C3AED" fill-opacity="0.08"/>
+  </g>
+  <rect x="49" y="49" width="926" height="926" rx="227" stroke="#344064" stroke-opacity="0.58" stroke-width="2"/>
+  <rect x="72" y="72" width="880" height="880" rx="208" stroke="#9FA9CE" stroke-opacity="0.09" stroke-width="2"/>
+
+  <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="#18DDF5" fill-opacity="0.42" filter="url(#outerGlow)"/>
+  <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="#8B5CF6" fill-opacity="0.46" filter="url(#softGlow)"/>
+
+  <g filter="url(#shadow)">
+    <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="url(#play)"/>
+    <path d="M301 247C280 234 254 249 254 274V750C254 775 280 790 301 777L774 513C796 501 796 469 774 457L301 247Z" fill="url(#playSheen)"/>
+    <path d="M300 276C290 270 280 277 280 289V735C280 747 290 754 300 748L707 519C719 512 719 496 707 489L300 276Z" stroke="#D8FDFF" stroke-opacity="0.44" stroke-width="3"/>
+  </g>
+
+  <circle cx="811" cy="209" r="5" fill="#22F5FF" fill-opacity="0.9"/>
+  <circle cx="845" cy="238" r="3" fill="#A855F7" fill-opacity="0.8"/>
+  <circle cx="182" cy="778" r="4" fill="#22F5FF" fill-opacity="0.6"/>
+</svg>
