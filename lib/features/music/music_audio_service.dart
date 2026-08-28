@@ -164,7 +164,7 @@ Future<void> initNovaAudioService() async {
     ),
   );
   audioHandler = handler;
-  await audioHandler.configureSession();
+  await currentAudioHandler.configureSession();
 }
 
 final musicQuery = OnAudioQuery();
