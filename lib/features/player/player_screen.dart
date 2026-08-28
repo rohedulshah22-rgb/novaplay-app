@@ -849,7 +849,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       dialogContext,
       'AI Voice Dubbing',
     );
-    if (!allowed || !mounted) return;
+    if (!allowed || !mounted || !dialogContext.mounted) return;
     final confirmed = await _confirmAiDubbingEnable(dialogContext);
     if (!confirmed || !mounted) return;
     updateSheet(true);

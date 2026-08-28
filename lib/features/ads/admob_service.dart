@@ -102,10 +102,11 @@ class NovaAdMob {
     for (var adNumber = 1; adNumber <= 2; adNumber++) {
       if (!context.mounted) return false;
       final ad = await _loadRewarded();
-      if (ad == null || !context.mounted) {
-        _showAdUnavailable(context);
+      if (ad == null) {
+        if (context.mounted) _showAdUnavailable(context);
         return false;
       }
+      if (!context.mounted) return false;
       final rewarded = await _showRewarded(ad);
       if (!rewarded) return false;
       completed++;
