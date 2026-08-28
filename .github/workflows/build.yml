@@ -1,4 +1,4 @@
-name: NovaPlay Optimized Build
+name: NovaPlay Optimized Fast Build
 
 on:
   push:
@@ -35,20 +35,30 @@ jobs:
       - name: Patch legacy on_audio_query Android namespace
         shell: bash
         run: |
-          query_gradle=$(find "$PUB_CACHE/hosted/pub.dev" -path "*/on_audio_query_android*/android/build.gradle" 2>/dev/null | head -n 1)
-          if [ -z "$query_gradle" ]; then
-            echo 'on_audio_query_android build.gradle was not found'
-            exit 1
-          fi
-          if ! grep -q 'namespace' "$query_gradle"; then
-            sed -i '/android {/a\\    namespace '\''com.lucasjosino.on_audio_query'\''' "$query_gradle"
-          fi
-          if ! grep -q 'sourceCompatibility JavaVersion.VERSION_17' "$query_gradle"; then
-            sed -i '/android {/a\\    compileOptions {\\n        sourceCompatibility JavaVersion.VERSION_17\\n        targetCompatibility JavaVersion.VERSION_17\\n    }' "$query_gradle"
-          fi
-          if ! grep -q 'KotlinCompile' "$query_gradle"; then
-            printf '\n%s\n' 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach { kotlinOptions { jvmTarget = "17" } }' >> "$query_gradle"
-          fi
+          python3 - << 'EOF'
+          import glob, os
+
+          cache_dir = os.path.expanduser('~/.pub-cache/hosted/pub.dev')
+          target_files = glob.glob(os.path.join(cache_dir, 'on_audio_query_android*', 'android', 'build.gradle'))
+
+          for file_path in target_files:
+              with open(file_path, 'r') as f:
+                  content = f.read()
+
+              if 'namespace' not in content:
+                  content = content.replace('android {', "android {\n    namespace 'com.lucasjosino.on_audio_query'")
+
+              if 'sourceCompatibility JavaVersion.VERSION_17' not in content:
+                  compile_opts = "android {\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }"
+                  content = content.replace('android {', compile_opts, 1)
+
+              if 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile)' not in content:
+                  content += "\ntasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach { kotlinOptions { jvmTarget = '17' } }\n"
+
+              with open(file_path, 'w') as f:
+                  f.write(content)
+              print(f"Successfully patched: {file_path}")
+          EOF
 
       - name: Build Optimized Split APKs
         run: flutter build apk --release --split-per-abi --no-tree-shake-icons
