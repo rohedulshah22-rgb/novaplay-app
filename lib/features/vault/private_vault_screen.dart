@@ -390,4 +390,3 @@ class _EmptyVault extends StatelessWidget {
     ),
   );
 }
-EOF
