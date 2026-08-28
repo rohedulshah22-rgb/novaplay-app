@@ -72,7 +72,7 @@ jobs:
       - name: Build production App Bundle
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --verbose
 
       - name: Verify production App Bundle
         run: test -s build/app/outputs/bundle/release/app-release.aab
@@ -87,7 +87,7 @@ jobs:
       - name: Build production APK for device testing
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
-        run: flutter build apk --release
+        run: flutter build apk --release --verbose
       - name: Verify production APK
         run: test -s build/app/outputs/flutter-apk/app-release.apk
       - name: Upload production APK
