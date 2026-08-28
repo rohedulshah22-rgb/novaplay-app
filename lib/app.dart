@@ -9,6 +9,7 @@ import 'features/media/presentation/media_providers.dart';
 import 'features/playlists/playlists_screen.dart';
 import 'features/reels/reels_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/vault/private_vault_screen.dart';
 
 class NovaPlayApp extends ConsumerStatefulWidget {
   const NovaPlayApp({super.key});
@@ -67,6 +68,7 @@ class NovaShell extends ConsumerWidget {
     ReelsScreen(),
     PlaylistsScreen(),
     SettingsScreen(),
+    PrivateVaultScreen(),
   ];
 
   @override
@@ -104,6 +106,11 @@ class NovaShell extends ConsumerWidget {
             icon: Icon(Icons.tune_outlined),
             selectedIcon: Icon(Icons.tune),
             label: 'Settings',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.lock_outline_rounded),
+            selectedIcon: Icon(Icons.lock_rounded),
+            label: 'Vault',
           ),
         ],
       ),

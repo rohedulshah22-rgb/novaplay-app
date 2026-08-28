@@ -6,7 +6,7 @@ import '../media/domain/natural_sort.dart';
 import '../media/domain/video_file.dart';
 import 'folder_view_preferences.dart';
 import '../media/presentation/video_card.dart';
-import '../media/presentation/audio_extraction_dialog.dart';
+import '../vault/private_vault_actions.dart';
 import '../player/player_screen.dart';
 
 class FolderVideosScreen extends StatefulWidget {
@@ -221,7 +221,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                 file: videos[index],
                 compact: true,
                 onTap: () => openPlayer(videos[index]),
-                onMore: () => showAudioExtractionDialog(context, videos[index]),
+                onMore: () => showVideoActions(context, videos[index]),
               ),
             )
           else
@@ -231,7 +231,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                 child: VideoCard(
                   file: file,
                   onTap: () => openPlayer(file),
-                  onMore: () => showAudioExtractionDialog(context, file),
+                  onMore: () => showVideoActions(context, file),
                 ),
               ),
             ),

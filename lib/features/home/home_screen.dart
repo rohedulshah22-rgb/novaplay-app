@@ -6,7 +6,7 @@ import '../../core/widgets/nova_widgets.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
 import '../media/presentation/video_card.dart';
-import '../media/presentation/audio_extraction_dialog.dart';
+import '../vault/private_vault_actions.dart';
 import '../folders/folder_videos_screen.dart';
 import '../player/player_screen.dart';
 
@@ -193,7 +193,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           compact: true,
                           onTap: () => openPlayer(files[index]),
                           onMore: () =>
-                              showAudioExtractionDialog(context, files[index]),
+                              showVideoActions(
+                                context,
+                                files[index],
+                                onChanged: () => media.load(force: true),
+                              ),
                         ),
                       )
                     else
@@ -204,7 +208,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             file: file,
                             onTap: () => openPlayer(file),
                             onMore: () =>
-                                showAudioExtractionDialog(context, file),
+                                showVideoActions(
+                              context,
+                              file,
+                              onChanged: () => media.load(force: true),
+                            ),
                           ),
                         ),
                       ),

@@ -78,13 +78,13 @@ flutter test
 flutter run
 ```
 
-For a production Android artifact, use an Android SDK with the project’s configured compile/target SDK and build an ABI-split release bundle or APK:
+The current Google Play release is version `1.0.3+4` (`versionName 1.0.3`, `versionCode 4`). Build the production Android App Bundle with an Android SDK configured for the project:
 
 ```bash
 flutter build appbundle --release
-# or
-flutter build apk --release --split-per-abi
 ```
+
+The bundle is generated at `build/app/outputs/bundle/release/app-release.aab`.
 
 The sandbox validation completed successfully for `flutter analyze` and `flutter test`. A local APK build could not be executed in the sandbox because no Android SDK was installed there; this is an environment limitation, not a Dart analyzer failure.
 
@@ -140,7 +140,7 @@ The dialogue enhancer uses an MPV `af` filter chain through the native MediaKit 
 
 Capture actions are intentionally local-first: MediaKit’s native screenshot API produces a high-resolution PNG at the current frame, while FFmpegKit seeks to the current position and encodes a five-second 12 fps GIF. Saver Gallery writes both outputs to `Pictures/NovaPlay/Snapshots` or `Pictures/NovaPlay/GIFs` on Android.
 
-The Private Vault stores imported files under the app’s private support directory and creates `.nomedia` to prevent gallery indexing. Unlocking uses the device’s secure authentication surface; `local_auth` allows biometric authentication with device PIN/passcode/pattern fallback by default. The move workflow copies the chosen file into the vault and attempts to remove the original, while retaining the copy if a document provider disallows deletion.
+The Private Vault stores videos under an Android app-private `files/private_vault` directory, which is outside MediaStore and protected from gallery indexing. Vault metadata is persisted locally while the 4-digit PIN is stored with `flutter_secure_storage`; Android backup is disabled for the application. The first unlock creates the PIN, then NovaPlay prefers fingerprint/face authentication when available and falls back to the PIN. Video cards and folder items expose `Move to Private Folder`; the native bridge copies the source into private storage, removes the public MediaStore/file entry, and refreshes the library. Vault items support direct playback, `Unhide / Restore Video` back into MediaStore, PIN changes, biometric preference, vault lock, and reset.
 
 NovaPlay supports Android Picture-in-Picture on Android 8.0 and newer. The Android activity declares `supportsPictureInPicture`, handles orientation and screen-size configuration changes, and uses the native PiP bridge to preserve the source aspect ratio. The player’s floating button enters PiP explicitly, while minimizing the app during active playback automatically enters PiP. The native window exposes a play/pause toggle and a close action; the latter terminates the task and releases the player through the normal PlayerScreen lifecycle.
 
@@ -148,7 +148,7 @@ The current source is intentionally modular so the next production iteration can
 
 ## GitHub Actions
 
-`.github/workflows/build.yml` runs on pushes and pull requests targeting `main`, as well as manual dispatches. It resolves dependencies, checks formatting, runs `flutter analyze`, runs widget tests, builds split release APKs with `flutter build apk --release --split-per-abi`, and uploads the generated ABI APKs as `novaplay-release-apks`; the primary phone build is `app-arm64-v8a-release.apk`.
+`.github/workflows/build.yml` runs on pushes and pull requests targeting `main`, as well as manual dispatches. It resolves dependencies, checks formatting, runs `flutter analyze`, runs widget tests, builds the production App Bundle with `flutter build appbundle --release`, uploads `novaplay-production-aab`, then builds the direct-install test APK with `flutter build apk --release` and uploads `novaplay-production-apk` from `build/app/outputs/flutter-apk/app-release.apk`.
 
 ## References
 

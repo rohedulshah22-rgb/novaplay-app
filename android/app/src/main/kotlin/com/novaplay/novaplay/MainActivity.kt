@@ -22,6 +22,7 @@ import android.media.MediaScannerConnection
 import android.util.Rational
 import android.util.Size
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -79,6 +80,8 @@ class MainActivity : FlutterFragmentActivity() {
                 "queryVideos" -> queryVideos(result)
                 "cacheThumbnail" -> cacheThumbnail(call, result)
                 "publishAudio" -> publishAudio(call, result)
+                "moveToVault" -> moveToVault(call, result)
+                "restoreFromVault" -> restoreFromVault(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -334,6 +337,94 @@ class MainActivity : FlutterFragmentActivity() {
                 runOnUiThread { result.success(output.absolutePath) }
             } catch (error: Exception) {
                 runOnUiThread { result.error("THUMBNAIL_FAILED", error.message, null) }
+            }
+        }
+    }
+
+    private fun moveToVault(call: MethodCall, result: MethodChannel.Result) {
+        val sourcePath = call.argument<String>("sourcePath")
+        val contentUri = call.argument<String>("contentUri")
+        val displayName = call.argument<String>("displayName") ?: "video.mp4"
+        if (sourcePath.isNullOrBlank() && contentUri.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "sourcePath or contentUri is required", null)
+            return
+        }
+        executor.execute {
+            try {
+                val vaultDirectory = File(filesDir, "private_vault").apply { mkdirs() }
+                val safeName = displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val destination = File(vaultDirectory, "${System.currentTimeMillis()}_$safeName")
+                val input = if (!sourcePath.isNullOrBlank() && File(sourcePath).exists()) {
+                    FileInputStream(File(sourcePath))
+                } else {
+                    contentResolver.openInputStream(Uri.parse(contentUri))
+                        ?: throw IllegalStateException("Unable to read the selected video")
+                }
+                input.use { stream -> destination.outputStream().use { output -> stream.copyTo(output) } }
+                if (!sourcePath.isNullOrBlank() && File(sourcePath).exists()) {
+                    File(sourcePath).delete()
+                } else if (!contentUri.isNullOrBlank()) {
+                    contentResolver.delete(Uri.parse(contentUri), null, null)
+                }
+                runOnUiThread { result.success(mapOf("vaultPath" to destination.absolutePath)) }
+            } catch (error: Exception) {
+                runOnUiThread { result.error("VAULT_MOVE_FAILED", error.message, null) }
+            }
+        }
+    }
+
+    private fun restoreFromVault(call: MethodCall, result: MethodChannel.Result) {
+        val vaultPath = call.argument<String>("vaultPath")
+        val originalPath = call.argument<String>("originalPath")
+        val relativePath = call.argument<String>("relativePath")
+        val displayName = call.argument<String>("displayName") ?: "restored_video.mp4"
+        if (vaultPath.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "vaultPath is required", null)
+            return
+        }
+        executor.execute {
+            try {
+                val source = File(vaultPath)
+                if (!source.exists()) throw IllegalStateException("Vault video was not found")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+                        put(MediaStore.Video.Media.MIME_TYPE, "video/*")
+                        put(
+                            MediaStore.Video.Media.RELATIVE_PATH,
+                            relativePath?.takeIf { it.isNotBlank() } ?: (Environment.DIRECTORY_MOVIES + "/NovaPlay/"),
+                        )
+                        put(MediaStore.Video.Media.IS_PENDING, 1)
+                    }
+                    val uri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                        ?: throw IllegalStateException("Unable to create public media entry")
+                    try {
+                        contentResolver.openOutputStream(uri)?.use { output ->
+                            source.inputStream().use { input -> input.copyTo(output) }
+                        } ?: throw IllegalStateException("Unable to write restored video")
+                        contentResolver.update(uri, ContentValues().apply {
+                            put(MediaStore.Video.Media.IS_PENDING, 0)
+                        }, null, null)
+                    } catch (error: Exception) {
+                        contentResolver.delete(uri, null, null)
+                        throw error
+                    }
+                    source.delete()
+                    runOnUiThread { result.success(uri.toString()) }
+                } else {
+                    val requested = originalPath?.takeIf { it.startsWith("/") && !it.startsWith(filesDir.absolutePath) }
+                    val target = if (requested != null) File(requested) else File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+                        "NovaPlay/$displayName",
+                    )
+                    target.parentFile?.mkdirs()
+                    source.inputStream().use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+                    source.delete()
+                    MediaScannerConnection.scanFile(this, arrayOf(target.absolutePath), arrayOf("video/*"), null)
+                    runOnUiThread { result.success(target.absolutePath) }
+                }
+            } catch (error: Exception) {
+                runOnUiThread { result.error("VAULT_RESTORE_FAILED", error.message, null) }
             }
         }
     }
