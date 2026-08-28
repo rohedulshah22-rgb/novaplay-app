@@ -34,7 +34,9 @@ Future<void> showVideoActions(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.lock_rounded, color: NovaColors.violet),
               title: const Text('Move to Private Folder'),
-              subtitle: const Text('Hide from Android gallery and NovaPlay lists'),
+              subtitle: const Text(
+                'Hide from Android gallery and NovaPlay lists',
+              ),
               onTap: () async {
                 Navigator.pop(sheetContext);
                 final confirmed = await _confirmMove(context, file.name);
@@ -44,7 +46,9 @@ Future<void> showVideoActions(
                   onChanged?.call();
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Video moved to Private Vault')),
+                      const SnackBar(
+                        content: Text('Video moved to Private Vault'),
+                      ),
                     );
                   }
                 } catch (error) {
@@ -58,7 +62,10 @@ Future<void> showVideoActions(
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.audiotrack_rounded, color: NovaColors.cyan),
+              leading: const Icon(
+                Icons.audiotrack_rounded,
+                color: NovaColors.cyan,
+              ),
               title: const Text('Extract Audio / Convert to MP3'),
               onTap: () {
                 Navigator.pop(sheetContext);

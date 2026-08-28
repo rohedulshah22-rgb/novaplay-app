@@ -59,7 +59,8 @@ class PrivateVaultEntry {
         originalUri: json['originalUri'] as String?,
         originalRelativePath: json['originalRelativePath'] as String?,
         sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
-        modifiedAt: DateTime.tryParse(json['modifiedAt'] as String? ?? '') ??
+        modifiedAt:
+            DateTime.tryParse(json['modifiedAt'] as String? ?? '') ??
             DateTime.now(),
       );
 }
@@ -127,9 +128,10 @@ class PrivateVaultService {
       if (decoded is! List) return const [];
       return decoded
           .whereType<Map>()
-          .map((item) => PrivateVaultEntry.fromJson(
-                Map<String, dynamic>.from(item),
-              ))
+          .map(
+            (item) =>
+                PrivateVaultEntry.fromJson(Map<String, dynamic>.from(item)),
+          )
           .where((entry) => File(entry.vaultPath).existsSync())
           .toList(growable: false);
     } catch (_) {
@@ -147,19 +149,16 @@ class PrivateVaultService {
 
   Future<PrivateVaultEntry> moveToVault(VideoFile file) async {
     final current = await entries();
-    if (current.any((entry) => entry.id == file.id)) return current.firstWhere(
-          (entry) => entry.id == file.id,
-        );
+    if (current.any((entry) => entry.id == file.id))
+      return current.firstWhere((entry) => entry.id == file.id);
 
-    final result = await _mediaChannel.invokeMethod<Map<dynamic, dynamic>>(
-      'moveToVault',
-      {
-        'sourcePath': file.path,
-        'contentUri': file.contentUri,
-        'relativePath': file.relativePath,
-        'displayName': file.name,
-      },
-    );
+    final result = await _mediaChannel
+        .invokeMethod<Map<dynamic, dynamic>>('moveToVault', {
+          'sourcePath': file.path,
+          'contentUri': file.contentUri,
+          'relativePath': file.relativePath,
+          'displayName': file.name,
+        });
     final map = Map<String, dynamic>.from(result ?? const {});
     final entry = PrivateVaultEntry(
       id: file.id,
@@ -186,17 +185,21 @@ class PrivateVaultService {
       'contentUri': entry.originalUri,
       'relativePath': entry.originalRelativePath,
     });
-    await _saveEntries((await entries())
-        .where((item) => item.id != entry.id)
-        .toList(growable: false));
+    await _saveEntries(
+      (await entries())
+          .where((item) => item.id != entry.id)
+          .toList(growable: false),
+    );
   }
 
   Future<void> deletePermanently(PrivateVaultEntry entry) async {
     final file = File(entry.vaultPath);
     if (await file.exists()) await file.delete();
-    await _saveEntries((await entries())
-        .where((item) => item.id != entry.id)
-        .toList(growable: false));
+    await _saveEntries(
+      (await entries())
+          .where((item) => item.id != entry.id)
+          .toList(growable: false),
+    );
   }
 
   Future<void> resetVault() async {

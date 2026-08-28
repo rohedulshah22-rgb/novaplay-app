@@ -192,12 +192,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           file: files[index],
                           compact: true,
                           onTap: () => openPlayer(files[index]),
-                          onMore: () =>
-                              showVideoActions(
-                                context,
-                                files[index],
-                                onChanged: () => media.load(force: true),
-                              ),
+                          onMore: () => showVideoActions(
+                            context,
+                            files[index],
+                            onChanged: () => media.load(force: true),
+                          ),
                         ),
                       )
                     else
@@ -207,8 +206,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           child: VideoCard(
                             file: file,
                             onTap: () => openPlayer(file),
-                            onMore: () =>
-                                showVideoActions(
+                            onMore: () => showVideoActions(
                               context,
                               file,
                               onChanged: () => media.load(force: true),

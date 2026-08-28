@@ -83,9 +83,9 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
       final pin = await _showPinEntry();
       success = pin != null && await privateVaultService.verifyPin(pin);
       if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Incorrect PIN')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Incorrect PIN')));
       }
     }
     if (!success || !mounted) return;
@@ -97,7 +97,9 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
   Future<void> _play(PrivateVaultEntry entry) async {
     if (!unlocked) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PlayerScreen(file: entry.toVideoFile())),
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(file: entry.toVideoFile()),
+      ),
     );
     if (mounted) await _loadItems();
   }
@@ -156,7 +158,9 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
               title: const Text('Change PIN'),
               onTap: () async {
                 Navigator.pop(sheetContext);
-                final pin = await _showPinSetup(title: 'Change Private Vault PIN');
+                final pin = await _showPinSetup(
+                  title: 'Change Private Vault PIN',
+                );
                 if (pin != null) await privateVaultService.setPin(pin);
               },
             ),
@@ -175,19 +179,35 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.delete_forever_rounded, color: Colors.redAccent),
-              title: const Text('Reset Vault', style: TextStyle(color: Colors.redAccent)),
-              subtitle: const Text('Permanently deletes vault copies; does not restore them'),
+              leading: const Icon(
+                Icons.delete_forever_rounded,
+                color: Colors.redAccent,
+              ),
+              title: const Text(
+                'Reset Vault',
+                style: TextStyle(color: Colors.redAccent),
+              ),
+              subtitle: const Text(
+                'Permanently deletes vault copies; does not restore them',
+              ),
               onTap: () async {
                 Navigator.pop(sheetContext);
                 final confirm = await showDialog<bool>(
                   context: context,
                   builder: (dialogContext) => AlertDialog(
                     title: const Text('Reset Private Vault?'),
-                    content: const Text('This permanently deletes every video currently in the vault.'),
+                    content: const Text(
+                      'This permanently deletes every video currently in the vault.',
+                    ),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-                      FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Reset vault')),
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogContext, false),
+                        child: const Text('Cancel'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('Reset vault'),
+                      ),
                     ],
                   ),
                 );
@@ -213,7 +233,9 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
   @override
   Widget build(BuildContext context) {
     if (loading) {
-      return const Center(child: CircularProgressIndicator(color: NovaColors.cyan));
+      return const Center(
+        child: CircularProgressIndicator(color: NovaColors.cyan),
+      );
     }
     if (!unlocked) {
       return _LockedVault(
@@ -224,9 +246,15 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Private Vault', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text(
+          'Private Vault',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
         actions: [
-          IconButton(onPressed: _vaultSettings, icon: const Icon(Icons.settings_outlined)),
+          IconButton(
+            onPressed: _vaultSettings,
+            icon: const Icon(Icons.settings_outlined),
+          ),
           IconButton(
             tooltip: 'Lock vault',
             onPressed: () {
@@ -267,14 +295,23 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.play_arrow_rounded, color: NovaColors.cyan),
+              leading: const Icon(
+                Icons.play_arrow_rounded,
+                color: NovaColors.cyan,
+              ),
               title: const Text('Play Video'),
-              onTap: () { Navigator.pop(sheetContext); _play(entry); },
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _play(entry);
+              },
             ),
             ListTile(
               leading: const Icon(Icons.lock_open_rounded),
               title: const Text('Unhide / Restore Video'),
-              onTap: () { Navigator.pop(sheetContext); _restore(entry); },
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _restore(entry);
+              },
             ),
           ],
         ),
@@ -293,17 +330,36 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Create a 4-digit PIN. Keep it safe; it is required if biometrics are unavailable.'),
+            const Text(
+              'Create a 4-digit PIN. Keep it safe; it is required if biometrics are unavailable.',
+            ),
             const SizedBox(height: 16),
-            TextField(controller: first, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, autofocus: true, decoration: const InputDecoration(labelText: 'New PIN')),
-            TextField(controller: second, obscureText: true, keyboardType: TextInputType.number, maxLength: 4, decoration: const InputDecoration(labelText: 'Confirm PIN')),
+            TextField(
+              controller: first,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'New PIN'),
+            ),
+            TextField(
+              controller: second,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              decoration: const InputDecoration(labelText: 'Confirm PIN'),
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () {
-              if (RegExp(r'^\d{4}$').hasMatch(first.text) && first.text == second.text) {
+              if (RegExp(r'^\d{4}$').hasMatch(first.text) &&
+                  first.text == second.text) {
                 Navigator.pop(dialogContext, first.text);
               }
             },
@@ -333,8 +389,14 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
           decoration: const InputDecoration(labelText: '4-digit PIN'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: const Text('Unlock')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Unlock'),
+          ),
         ],
       ),
     );
@@ -344,7 +406,11 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
 }
 
 class _LockedVault extends StatelessWidget {
-  const _LockedVault({required this.configured, required this.biometricAvailable, required this.onUnlock});
+  const _LockedVault({
+    required this.configured,
+    required this.biometricAvailable,
+    required this.onUnlock,
+  });
   final bool configured;
   final bool biometricAvailable;
   final VoidCallback onUnlock;
@@ -357,13 +423,39 @@ class _LockedVault extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(configured ? Icons.lock_rounded : Icons.shield_rounded, size: 64, color: NovaColors.violet),
+            Icon(
+              configured ? Icons.lock_rounded : Icons.shield_rounded,
+              size: 64,
+              color: NovaColors.violet,
+            ),
             const SizedBox(height: 18),
-            Text(configured ? 'Private Vault is locked' : 'Set up your Private Vault', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+            Text(
+              configured
+                  ? 'Private Vault is locked'
+                  : 'Set up your Private Vault',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 8),
-            Text(configured ? 'Your videos are stored in NovaPlay’s app-private storage.' : 'Protect sensitive videos with a 4-digit PIN and optional biometrics.', style: const TextStyle(color: NovaColors.muted), textAlign: TextAlign.center),
+            Text(
+              configured
+                  ? 'Your videos are stored in NovaPlay’s app-private storage.'
+                  : 'Protect sensitive videos with a 4-digit PIN and optional biometrics.',
+              style: const TextStyle(color: NovaColors.muted),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 20),
-            FilledButton.icon(onPressed: onUnlock, icon: Icon(configured && biometricAvailable ? Icons.fingerprint_rounded : Icons.lock_open_rounded), label: Text(configured ? 'Unlock Vault' : 'Create PIN')),
+            FilledButton.icon(
+              onPressed: onUnlock,
+              icon: Icon(
+                configured && biometricAvailable
+                    ? Icons.fingerprint_rounded
+                    : Icons.lock_open_rounded,
+              ),
+              label: Text(configured ? 'Unlock Vault' : 'Create PIN'),
+            ),
           ],
         ),
       ),
@@ -382,9 +474,16 @@ class _EmptyVault extends StatelessWidget {
         children: const [
           Icon(Icons.video_library_outlined, size: 54, color: NovaColors.muted),
           SizedBox(height: 14),
-          Text('Your Private Vault is empty', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+          Text(
+            'Your Private Vault is empty',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+          ),
           SizedBox(height: 7),
-          Text('Use a video’s menu and choose “Move to Private Folder”.', style: TextStyle(color: NovaColors.muted), textAlign: TextAlign.center),
+          Text(
+            'Use a video’s menu and choose “Move to Private Folder”.',
+            style: TextStyle(color: NovaColors.muted),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     ),
