@@ -6,6 +6,7 @@ import 'package:on_audio_query/on_audio_query.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
+import '../ads/admob_banner.dart';
 import 'music_audio_service.dart';
 
 class MusicScreen extends ConsumerStatefulWidget {
@@ -92,6 +93,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: const NovaBannerAd(),
       appBar: AppBar(
         title: const Text(
           'Music',

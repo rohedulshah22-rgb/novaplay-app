@@ -146,6 +146,8 @@ NovaPlay supports Android Picture-in-Picture on Android 8.0 and newer. The Andro
 
 The Music tab scans local `.mp3`, `.m4a`, `.aac`, `.flac`, and `.wav` files with `on_audio_query`, and presents All Songs, Albums, Artists, and Folders groupings. A shared mini-player remains above the bottom navigation while browsing NovaPlay, and tapping it opens the full-screen player with artwork, seek, repeat, shuffle, previous, and next controls. `just_audio` supplies local-file playback while `audio_service` owns the Android foreground media service, lock-screen notification, headset/media-button actions, and background transport controls. Audio access requests `READ_MEDIA_AUDIO` on Android 13+ and uses the existing shared-storage permission fallback on older Android versions [16] [17] [18].
 
+NovaPlay uses a reward-first AdMob model. Standard banner ads appear only at the bottom of the Video and Music library screens; there are no interstitial ads on video back, exit, or normal playback transitions. AI Subtitle Generator, AI Voice Dubbing, and Video-to-MP3 conversion are protected by a single shared 24-hour premium pass. When the pass is inactive, NovaPlay clearly explains that watching two rewarded video ads unlocks all three features for 24 hours. The pass is stored as an expiry timestamp in `SharedPreferences`, and a valid pass allows direct feature access without another ad sequence. The application initializes Google Mobile Ads before rendering the shell and uses the configured Android application ID and banner/rewarded unit IDs [20] [21].
+
 The current source is intentionally modular so the next production iteration can add richer playlist persistence and richer media metadata without rewriting the visual shell. The active folder queue and player-owned MediaKit lifecycle are already implemented in `PlayerScreen`, while the singleton music handler remains alive for background audio playback.
 
 ## GitHub Actions
@@ -173,3 +175,5 @@ The current source is intentionally modular so the next production iteration can
 [17]: https://pub.dev/packages/audio_service "audio_service package documentation"
 [18]: https://pub.dev/packages/on_audio_query "on_audio_query package documentation"
 [19]: https://pub.dev/packages/flutter_tts "flutter_tts package documentation"
+[20]: https://pub.dev/packages/google_mobile_ads "google_mobile_ads package documentation"
+[21]: https://developers.google.com/admob/flutter/quick-start "Google AdMob Flutter quick-start"

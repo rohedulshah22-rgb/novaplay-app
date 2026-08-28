@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../ads/admob_banner.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
@@ -44,6 +45,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final files = library.filteredFiles;
 
     return Scaffold(
+      bottomNavigationBar: const NovaBannerAd(),
       body: SafeArea(
         child: RefreshIndicator(
           color: NovaColors.cyan,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../ads/admob_service.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/audio_extraction_dialog.dart';
 import 'private_vault_service.dart';
@@ -67,9 +68,15 @@ Future<void> showVideoActions(
                 color: NovaColors.cyan,
               ),
               title: const Text('Extract Audio / Convert to MP3'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(sheetContext);
-                showAudioExtractionDialog(context, file);
+                final allowed = await NovaAdMob.instance.requirePremium(
+                  context,
+                  'Video to MP3 Converter',
+                );
+                if (allowed && context.mounted) {
+                  await showAudioExtractionDialog(context, file);
+                }
               },
             ),
           ],

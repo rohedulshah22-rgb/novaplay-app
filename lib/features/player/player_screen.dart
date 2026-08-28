@@ -13,6 +13,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../ads/admob_service.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../media/data/media_repository.dart';
 import '../media/data/audio_extraction_service.dart';
@@ -568,7 +569,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _loadAiSubtitlePreferences() async {
-    final values = await AiSubtitlePreferences.load();
+    var values = await AiSubtitlePreferences.load();
+    if ((values.enabled || values.aiDubbingEnabled) &&
+        !await NovaAdMob.instance.hasPremiumPass()) {
+      await AiSubtitlePreferences.save(enabled: false, aiDubbingEnabled: false);
+      values = await AiSubtitlePreferences.load();
+    }
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = values.enabled;
@@ -839,6 +845,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     // Deliberately keep the switch off while the confirmation dialog is open.
     updateSheet(false);
+    final allowed = await NovaAdMob.instance.requirePremium(
+      dialogContext,
+      'AI Voice Dubbing',
+    );
+    if (!allowed || !mounted) return;
     final confirmed = await _confirmAiDubbingEnable(dialogContext);
     if (!confirmed || !mounted) return;
     updateSheet(true);
@@ -872,9 +883,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     : Icons.closed_caption_disabled_rounded,
                 color: enabled ? NovaColors.cyan : Colors.white54,
               ),
-              onChanged: (value) {
-                setSheetState(() => enabled = value);
-                _setAiSubtitlesEnabled(value);
+              onChanged: (value) async {
+                if (!value) {
+                  setSheetState(() => enabled = false);
+                  await _setAiSubtitlesEnabled(false);
+                  return;
+                }
+                final allowed = await NovaAdMob.instance.requirePremium(
+                  context,
+                  'AI Subtitle Generator',
+                );
+                if (!allowed || !mounted) return;
+                setSheetState(() => enabled = true);
+                await _setAiSubtitlesEnabled(true);
               },
             ),
             SwitchListTile.adaptive(
