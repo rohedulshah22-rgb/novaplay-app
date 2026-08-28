@@ -38,6 +38,18 @@ jobs:
       - name: Resolve dependencies
         run: flutter pub get
 
+      - name: Patch legacy on_audio_query Android namespace
+        shell: bash
+        run: |
+          query_gradle=$(find "$PUB_CACHE/hosted/pub.dev" -path '*/on_audio_query_android-*/android/build.gradle' -print -quit)
+          if [ -z "$query_gradle" ]; then
+            echo 'on_audio_query_android build.gradle was not found'
+            exit 1
+          fi
+          if ! grep -q 'namespace' "$query_gradle"; then
+            sed -i "/android {/a\\    namespace 'com.lucasjosino.on_audio_query'" "$query_gradle"
+          fi
+
       - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed lib test
 
