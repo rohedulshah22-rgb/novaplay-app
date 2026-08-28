@@ -26,12 +26,12 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
-import io.flutter.embedding.android.FlutterFragmentActivity
+import com.ryanheise.audioservice.AudioServiceFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterFragmentActivity() {
+class MainActivity : AudioServiceFragmentActivity() {
     companion object {
         private const val PIP_ACTION = "com.novaplay.PIP_ACTION"
         private const val ACTION_PLAY_PAUSE = "play_pause"

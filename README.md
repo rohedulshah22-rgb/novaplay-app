@@ -144,7 +144,9 @@ The Private Vault stores videos under an Android app-private `files/private_vaul
 
 NovaPlay supports Android Picture-in-Picture on Android 8.0 and newer. The Android activity declares `supportsPictureInPicture`, handles orientation and screen-size configuration changes, and uses the native PiP bridge to preserve the source aspect ratio. The player’s floating button enters PiP explicitly, while minimizing the app during active playback automatically enters PiP. The native window exposes a play/pause toggle and a close action; the latter terminates the task and releases the player through the normal PlayerScreen lifecycle.
 
-The current source is intentionally modular so the next production iteration can add richer playlist persistence, true background-media notification controls, and richer media metadata without rewriting the visual shell. The active folder queue and player-owned MediaKit lifecycle are already implemented in `PlayerScreen`.
+The Music tab scans local `.mp3`, `.m4a`, `.aac`, `.flac`, and `.wav` files with `on_audio_query`, and presents All Songs, Albums, Artists, and Folders groupings. A shared mini-player remains above the bottom navigation while browsing NovaPlay, and tapping it opens the full-screen player with artwork, seek, repeat, shuffle, previous, and next controls. `just_audio` supplies local-file playback while `audio_service` owns the Android foreground media service, lock-screen notification, headset/media-button actions, and background transport controls. Audio access requests `READ_MEDIA_AUDIO` on Android 13+ and uses the existing shared-storage permission fallback on older Android versions [16] [17] [18].
+
+The current source is intentionally modular so the next production iteration can add richer playlist persistence and richer media metadata without rewriting the visual shell. The active folder queue and player-owned MediaKit lifecycle are already implemented in `PlayerScreen`, while the singleton music handler remains alive for background audio playback.
 
 ## GitHub Actions
 
@@ -167,7 +169,7 @@ The current source is intentionally modular so the next production iteration can
 [13]: https://developer.android.com/training/data-storage/shared/media "Access media files from shared storage"
 [14]: https://developer.android.com/about/versions/14/changes/partial-photo-video-access "Grant partial access to photos and videos"
 [15]: https://developer.android.com/reference/android/provider/MediaStore "MediaStore API reference"
-[16]: https://developer.android.com/reference/android/Manifest.permission#READ_MEDIA_VISUAL_USER_SELECTED "READ_MEDIA_VISUAL_USER_SELECTED permission"
-[17]: https://platform.openai.com/docs/guides/speech-to-text "OpenAI speech-to-text guide"
-[18]: https://platform.openai.com/docs/api-reference/audio/createTranscription "OpenAI transcription API reference"
+[16]: https://pub.dev/packages/just_audio "just_audio package documentation"
+[17]: https://pub.dev/packages/audio_service "audio_service package documentation"
+[18]: https://pub.dev/packages/on_audio_query "on_audio_query package documentation"
 [19]: https://pub.dev/packages/flutter_tts "flutter_tts package documentation"
