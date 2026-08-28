@@ -149,7 +149,8 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Future<void> dispose() => _player.dispose();
 }
 
-late final NovaAudioHandler audioHandler;
+NovaAudioHandler? audioHandler;
+NovaAudioHandler get currentAudioHandler => audioHandler ??= NovaAudioHandler();
 
 Future<void> initNovaAudioService() async {
   final handler = await AudioService.init(

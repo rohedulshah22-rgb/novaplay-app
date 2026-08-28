@@ -82,8 +82,11 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
   Future<void> _play(SongModel song) async {
     final list = visibleSongs;
     final index = list.indexWhere((item) => item.id == song.id);
-    await audioHandler.loadSongs(list, initialIndex: index < 0 ? 0 : index);
-    await audioHandler.play();
+    await currentAudioHandler.loadSongs(
+      list,
+      initialIndex: index < 0 ? 0 : index,
+    );
+    await currentAudioHandler.play();
   }
 
   @override
@@ -298,7 +301,7 @@ class MusicMiniPlayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<MediaItem?>(
-      stream: audioHandler.mediaItem,
+      stream: currentAudioHandler.mediaItem,
       builder: (context, snapshot) {
         final item = snapshot.data;
         if (item == null) return const SizedBox.shrink();
@@ -339,12 +342,12 @@ class MusicMiniPlayer extends StatelessWidget {
                     ),
                   ),
                   StreamBuilder<bool>(
-                    stream: audioHandler.player.playingStream,
-                    initialData: audioHandler.player.playing,
+                    stream: currentAudioHandler.player.playingStream,
+                    initialData: currentAudioHandler.player.playing,
                     builder: (_, playing) => IconButton(
                       onPressed: () => playing.data == true
-                          ? audioHandler.pause()
-                          : audioHandler.play(),
+                          ? currentAudioHandler.pause()
+                          : currentAudioHandler.play(),
                       icon: Icon(
                         playing.data == true
                             ? Icons.pause_circle_filled_rounded
@@ -355,7 +358,7 @@ class MusicMiniPlayer extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: audioHandler.skipToNext,
+                    onPressed: currentAudioHandler.skipToNext,
                     icon: const Icon(Icons.skip_next_rounded),
                   ),
                 ],
@@ -381,7 +384,7 @@ class MusicPlayerScreen extends StatelessWidget {
         ),
       ),
       body: StreamBuilder<MediaItem?>(
-        stream: audioHandler.mediaItem,
+        stream: currentAudioHandler.mediaItem,
         builder: (context, snapshot) {
           final item = snapshot.data;
           if (item == null) {
@@ -416,9 +419,9 @@ class MusicPlayerScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   StreamBuilder<Duration>(
-                    stream: audioHandler.player.positionStream,
+                    stream: currentAudioHandler.player.positionStream,
                     builder: (_, position) => StreamBuilder<Duration?>(
-                      stream: audioHandler.player.durationStream,
+                      stream: currentAudioHandler.player.durationStream,
                       builder: (_, duration) {
                         final max =
                             duration.data?.inMilliseconds.toDouble() ?? 1;
@@ -431,7 +434,7 @@ class MusicPlayerScreen extends StatelessWidget {
                             Slider(
                               value: value,
                               max: max == 0 ? 1 : max,
-                              onChanged: (value) => audioHandler.seek(
+                              onChanged: (value) => currentAudioHandler.seek(
                                 Duration(milliseconds: value.round()),
                               ),
                             ),
@@ -468,10 +471,11 @@ class MusicPlayerScreen extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       StreamBuilder<bool>(
-                        stream: audioHandler.player.shuffleModeEnabledStream,
+                        stream:
+                            currentAudioHandler.player.shuffleModeEnabledStream,
                         initialData: false,
                         builder: (_, value) => IconButton(
-                          onPressed: () => audioHandler.setShuffleMode(
+                          onPressed: () => currentAudioHandler.setShuffleMode(
                             value.data == true
                                 ? AudioServiceShuffleMode.all
                                 : AudioServiceShuffleMode.none,
@@ -485,16 +489,16 @@ class MusicPlayerScreen extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        onPressed: audioHandler.skipToPrevious,
+                        onPressed: currentAudioHandler.skipToPrevious,
                         icon: const Icon(Icons.skip_previous_rounded, size: 38),
                       ),
                       StreamBuilder<bool>(
-                        stream: audioHandler.player.playingStream,
-                        initialData: audioHandler.player.playing,
+                        stream: currentAudioHandler.player.playingStream,
+                        initialData: currentAudioHandler.player.playing,
                         builder: (_, playing) => IconButton(
                           onPressed: () => playing.data == true
-                              ? audioHandler.pause()
-                              : audioHandler.play(),
+                              ? currentAudioHandler.pause()
+                              : currentAudioHandler.play(),
                           icon: Icon(
                             playing.data == true
                                 ? Icons.pause_circle_filled_rounded
@@ -505,14 +509,14 @@ class MusicPlayerScreen extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        onPressed: audioHandler.skipToNext,
+                        onPressed: currentAudioHandler.skipToNext,
                         icon: const Icon(Icons.skip_next_rounded, size: 38),
                       ),
                       StreamBuilder<LoopMode>(
-                        stream: audioHandler.player.loopModeStream,
+                        stream: currentAudioHandler.player.loopModeStream,
                         initialData: LoopMode.off,
                         builder: (_, mode) => IconButton(
-                          onPressed: () => audioHandler.setLoopMode(
+                          onPressed: () => currentAudioHandler.setLoopMode(
                             mode.data == LoopMode.off
                                 ? LoopMode.all
                                 : mode.data == LoopMode.all
