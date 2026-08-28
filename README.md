@@ -22,6 +22,7 @@ NovaPlay is a dark-first, offline Android video player built with Flutter. Curre
 | Reels | Dedicated full-screen vertical PageView feed that prioritizes portrait videos and keeps playback lifecycle scoped to each page |
 | Private Vault | Fingerprint/face/PIN/pattern unlock via `local_auth`, app-support storage, `.nomedia` shielding, import-and-move workflow, and locked-by-default gallery |
 | Tracks | Embedded audio track selection, explicit `None / Turn Off Subtitles`, language-labeled immediate switching, and external subtitle selection for SRT, VTT, ASS, and SSA files |
+| Playback utilities | Session sleep timer with preset/custom/end-of-video modes, high-quality MP3 extraction to `Music/NovaPlay`, and Chromecast/DLNA local-network casting with remote playback controls |
 | System integration | Android scoped-storage, biometric, gallery, wake-lock, and PiP declarations; app brightness and system volume control; native PiP bridge |
 | Architecture | Feature-first folders with Riverpod 3 Notifier state and a repository boundary for scan/cache operations |
 
@@ -48,6 +49,9 @@ lib/
     player/ai_subtitle_service.dart
     player/capture_service.dart
     player/precision_scrubber.dart
+  player/cast_service.dart
+  media/data/audio_extraction_service.dart
+  media/presentation/audio_extraction_dialog.dart
     media/
       data/media_repository.dart
       data/thumbnail_cache.dart
@@ -95,6 +99,14 @@ The app observes lifecycle `resumed` events and checks native permission state a
 The Android bridge queries `MediaStore.Video.Media` using `MediaStore.VOLUME_EXTERNAL` on Android 10 and newer, which provides the system view across shared external storage volumes, including indexed removable SD-card volumes. Android 9 uses `MediaStore.Video.Media.EXTERNAL_CONTENT_URI`. The query returns stable content URIs plus display name, file size, duration, resolution, MIME type, modification time, and storage path metadata.
 
 Library cards use a disk-backed thumbnail cache. Native MediaStore rows are thumbnailized through `ContentResolver.loadThumbnail()` when available, while explicitly selected custom directories use the local video-thumbnail fallback. The Folders tab exposes a `Pick a folder` action through `file_picker` for USB/SD/custom locations that are not visible in the user’s MediaStore view; only explicitly selected directories use the targeted filesystem fallback. Tapping a Smart folder or Folders item opens `FolderVideosScreen`, which provides folder-scoped video browsing, sort/filter controls, grid/list switching, direct player navigation, and standard back navigation.
+
+## Playback utilities
+
+The player settings sheet includes a sleep timer with 15, 30, 45, and 60 minute presets, a custom duration, and an `End of current video` mode. When the timer expires, MediaKit playback is paused and the screen is allowed to sleep. The settings sheet shows the active countdown and exposes `Cancel Timer`.
+
+Home and folder video cards expose `Extract Audio / Convert to MP3` through the overflow button and long press. FFmpegKit runs asynchronously, reports conversion progress in a dialog, and the native Android bridge publishes the resulting high-quality MP3 to the public `Music/NovaPlay` folder through MediaStore, with a legacy MediaScanner fallback.
+
+The player HUD includes a Cast button backed by `dart_cast`. NovaPlay discovers Chromecast and DLNA/UPnP renderers on the same Wi-Fi network, serves supported local files through the package’s local proxy, and provides remote play, pause, seek, and volume controls. Receiver support varies by container and TV firmware; casting is optional and does not replace the local MediaKit player until a device connection succeeds.
 
 ## Playback notes
 

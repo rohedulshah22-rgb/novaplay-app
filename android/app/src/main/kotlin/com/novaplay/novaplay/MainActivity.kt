@@ -8,14 +8,17 @@ import android.content.Context
 import android.content.IntentFilter
 import android.graphics.drawable.Icon
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.BatteryManager
 import android.provider.MediaStore
 import android.provider.Settings
+import android.media.MediaScannerConnection
 import android.util.Rational
 import android.util.Size
 import java.io.File
@@ -75,6 +78,7 @@ class MainActivity : FlutterFragmentActivity() {
                 "openAppSettings" -> openAppSettings(result)
                 "queryVideos" -> queryVideos(result)
                 "cacheThumbnail" -> cacheThumbnail(call, result)
+                "publishAudio" -> publishAudio(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -330,6 +334,60 @@ class MainActivity : FlutterFragmentActivity() {
                 runOnUiThread { result.success(output.absolutePath) }
             } catch (error: Exception) {
                 runOnUiThread { result.error("THUMBNAIL_FAILED", error.message, null) }
+            }
+        }
+    }
+
+    private fun publishAudio(call: MethodCall, result: MethodChannel.Result) {
+        val tempPath = call.argument<String>("tempPath")
+        val displayName = call.argument<String>("displayName") ?: "NovaPlay Audio.mp3"
+        if (tempPath.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "tempPath is required", null)
+            return
+        }
+        executor.execute {
+            try {
+                val source = File(tempPath)
+                if (!source.exists() || source.length() == 0L) {
+                    runOnUiThread { result.error("AUDIO_NOT_FOUND", "Extracted audio was not found", null) }
+                    return@execute
+                }
+                val publishedUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
+                        put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                        put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/NovaPlay")
+                        put(MediaStore.Audio.Media.IS_PENDING, 1)
+                    }
+                    val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+                        ?: throw IllegalStateException("Unable to create Music/NovaPlay media entry")
+                    try {
+                        contentResolver.openOutputStream(uri)?.use { output ->
+                            source.inputStream().use { input -> input.copyTo(output) }
+                        } ?: throw IllegalStateException("Unable to open Music/NovaPlay output")
+                        contentResolver.update(uri, ContentValues().apply {
+                            put(MediaStore.Audio.Media.IS_PENDING, 0)
+                        }, null, null)
+                        uri.toString()
+                    } catch (error: Exception) {
+                        contentResolver.delete(uri, null, null)
+                        throw error
+                    }
+                } else {
+                    val directory = File(
+                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+                        "NovaPlay",
+                    )
+                    directory.mkdirs()
+                    val output = File(directory, displayName)
+                    source.inputStream().use { input -> output.outputStream().use { out -> input.copyTo(out) } }
+                    MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf("audio/mpeg"), null)
+                    output.absolutePath
+                }
+                source.delete()
+                runOnUiThread { result.success(publishedUri) }
+            } catch (error: Exception) {
+                runOnUiThread { result.error("AUDIO_PUBLISH_FAILED", error.message, null) }
             }
         }
     }

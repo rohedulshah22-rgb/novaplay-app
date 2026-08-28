@@ -64,16 +64,19 @@ class VideoCard extends StatelessWidget {
     required this.file,
     required this.onTap,
     this.compact = false,
+    this.onMore,
   });
   final VideoFile file;
   final VoidCallback onTap;
   final bool compact;
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
     if (compact) {
       return InkWell(
         onTap: onTap,
+        onLongPress: onMore,
         borderRadius: BorderRadius.circular(18),
         child: SizedBox(
           width: 178,
@@ -93,6 +96,20 @@ class VideoCard extends StatelessWidget {
                     bottom: 9,
                     child: _DurationPill(file: file),
                   ),
+                  if (onMore != null)
+                    Positioned(
+                      top: 5,
+                      right: 5,
+                      child: IconButton(
+                        onPressed: onMore,
+                        visualDensity: VisualDensity.compact,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black54,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.more_vert_rounded, size: 18),
+                      ),
+                    ),
                   if (file.completion > 0)
                     Positioned(
                       left: 12,
@@ -131,84 +148,90 @@ class VideoCard extends StatelessWidget {
       );
     }
 
-    return GlassCard(
-      padding: const EdgeInsets.all(10),
-      borderRadius: 18,
-      onTap: onTap,
-      child: Row(
-        children: [
-          SizedBox(
-            width: 132,
-            child: Stack(
-              children: [
-                VideoArtwork(file: file, aspectRatio: 16 / 10),
-                Positioned(
-                  left: 7,
-                  bottom: 7,
-                  child: ResolutionBadge(label: file.resolution),
-                ),
-                Positioned(
-                  right: 7,
-                  bottom: 7,
-                  child: _DurationPill(file: file),
-                ),
-                if (file.completion > 0)
+    return GestureDetector(
+      onLongPress: onMore,
+      child: GlassCard(
+        padding: const EdgeInsets.all(10),
+        borderRadius: 18,
+        onTap: onTap,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 132,
+              child: Stack(
+                children: [
+                  VideoArtwork(file: file, aspectRatio: 16 / 10),
                   Positioned(
-                    left: 8,
-                    right: 8,
-                    bottom: 2,
-                    child: LinearProgressIndicator(
-                      value: file.completion,
-                      minHeight: 2,
-                      color: NovaColors.cyan,
-                      backgroundColor: Colors.white24,
-                    ),
+                    left: 7,
+                    bottom: 7,
+                    child: ResolutionBadge(label: file.resolution),
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  file.name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    height: 1.25,
+                  Positioned(
+                    right: 7,
+                    bottom: 7,
+                    child: _DurationPill(file: file),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${file.folderName}  •  ${formatBytes(file.sizeBytes)}',
-                  style: const TextStyle(color: NovaColors.muted, fontSize: 11),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.more_horiz,
-                      size: 19,
-                      color: NovaColors.muted,
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: onTap,
-                      visualDensity: VisualDensity.compact,
-                      icon: const Icon(
-                        Icons.play_arrow_rounded,
+                  if (file.completion > 0)
+                    Positioned(
+                      left: 8,
+                      right: 8,
+                      bottom: 2,
+                      child: LinearProgressIndicator(
+                        value: file.completion,
+                        minHeight: 2,
                         color: NovaColors.cyan,
+                        backgroundColor: Colors.white24,
                       ),
                     ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    file.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${file.folderName}  •  ${formatBytes(file.sizeBytes)}',
+                    style: const TextStyle(
+                      color: NovaColors.muted,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.more_horiz,
+                        size: 19,
+                        color: NovaColors.muted,
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        onPressed: onTap,
+                        visualDensity: VisualDensity.compact,
+                        icon: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: NovaColors.cyan,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

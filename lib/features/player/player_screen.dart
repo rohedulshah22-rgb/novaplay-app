@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
+import 'package:dart_cast/dart_cast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +15,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../media/data/media_repository.dart';
+import '../media/data/audio_extraction_service.dart';
 import '../media/domain/playback_history.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
@@ -21,6 +23,7 @@ import 'ai_subtitle_preferences.dart';
 import 'ai_subtitle_service.dart';
 import 'language_names.dart';
 import 'capture_service.dart';
+import 'cast_service.dart';
 import 'precision_scrubber.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
@@ -97,6 +100,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _queueTransitioning = false;
   bool _playerDisposed = false;
   Timer? _queueIndicatorTimer;
+  Timer? _sleepTimer;
+  Duration? _sleepRemaining;
+  bool _sleepUntilVideoEnd = false;
+  final NovaCastController _castController = NovaCastController();
+  bool _castBusy = false;
+  bool _castConnected = false;
+  final audioExtractionService = const AudioExtractionService();
   String? _queueIndicatorLabel;
   int _queueIndicatorDirection = 1;
 
@@ -148,7 +158,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       unawaited(_updatePipState(playing));
     });
     _completionSubscription = player.stream.completed.listen((completed) {
-      if (completed) _playQueueOffset(1, automatic: true);
+      if (!completed) return;
+      _handleVideoCompletedForSleepTimer();
+      _playQueueOffset(1, automatic: true);
     });
     _resumeSaveTimer = Timer.periodic(
       const Duration(seconds: 2),
@@ -298,6 +310,184 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _queueIndicatorTimer = Timer(const Duration(milliseconds: 1200), () {
       if (mounted) setState(() => _queueIndicatorLabel = null);
     });
+  }
+
+  String _formatSleepRemaining(Duration value) {
+    final minutes = value.inMinutes;
+    final seconds = value.inSeconds.remainder(60);
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  void _cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    if (mounted) {
+      setState(() {
+        _sleepRemaining = null;
+        _sleepUntilVideoEnd = false;
+      });
+    }
+  }
+
+  void _setSleepTimer(Duration? duration, {bool untilVideoEnd = false}) {
+    _sleepTimer?.cancel();
+    setState(() {
+      _sleepRemaining = duration;
+      _sleepUntilVideoEnd = untilVideoEnd;
+    });
+    if (duration == null || untilVideoEnd) return;
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final remaining = _sleepRemaining;
+      if (!mounted || remaining == null) return;
+      if (remaining <= const Duration(seconds: 1)) {
+        _sleepTimer?.cancel();
+        _sleepTimer = null;
+        await player.pause();
+        if (!mounted) return;
+        setState(() => _sleepRemaining = null);
+        _showHud('Sleep timer paused playback', Icons.bedtime_rounded);
+        return;
+      }
+      setState(() => _sleepRemaining = remaining - const Duration(seconds: 1));
+    });
+  }
+
+  void _handleVideoCompletedForSleepTimer() {
+    if (!_sleepUntilVideoEnd) return;
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    setState(() {
+      _sleepUntilVideoEnd = false;
+      _sleepRemaining = null;
+    });
+  }
+
+  Future<void> _showSleepTimerSheet(
+    BuildContext context, {
+    VoidCallback? onChanged,
+  }) async {
+    final choices = <MapEntry<String, Duration?>>[
+      const MapEntry('15 minutes', Duration(minutes: 15)),
+      const MapEntry('30 minutes', Duration(minutes: 30)),
+      const MapEntry('45 minutes', Duration(minutes: 45)),
+      const MapEntry('60 minutes', Duration(minutes: 60)),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Sleep timer',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _sleepUntilVideoEnd
+                    ? 'Active: End of current video'
+                    : _sleepRemaining == null
+                    ? 'No timer active'
+                    : 'Active: ${_formatSleepRemaining(_sleepRemaining!)} remaining',
+                style: const TextStyle(color: NovaColors.muted),
+              ),
+              const SizedBox(height: 14),
+              ...choices.map(
+                (choice) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.timer_outlined,
+                    color: NovaColors.cyan,
+                  ),
+                  title: Text(choice.key),
+                  onTap: () {
+                    _setSleepTimer(choice.value);
+                    onChanged?.call();
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(
+                  Icons.movie_outlined,
+                  color: NovaColors.violet,
+                ),
+                title: const Text('End of current video'),
+                onTap: () {
+                  _setSleepTimer(null, untilVideoEnd: true);
+                  onChanged?.call();
+                  Navigator.pop(sheetContext);
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.edit_calendar_outlined),
+                title: const Text('Custom duration'),
+                onTap: () async {
+                  final minutes = await _customSleepMinutes(sheetContext);
+                  if (minutes != null && mounted) {
+                    _setSleepTimer(Duration(minutes: minutes));
+                    if (sheetContext.mounted) Navigator.pop(sheetContext);
+                  }
+                },
+              ),
+              if (_sleepRemaining != null || _sleepUntilVideoEnd)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      _cancelSleepTimer();
+                      onChanged?.call();
+                      Navigator.pop(sheetContext);
+                    },
+                    icon: const Icon(Icons.timer_off_outlined),
+                    label: const Text('Cancel Timer'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<int?> _customSleepMinutes(BuildContext context) async {
+    final controller = TextEditingController();
+    final value = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Custom duration'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Minutes'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              int.tryParse(controller.text.trim()),
+            ),
+            child: const Text('Set'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return value != null && value > 0 ? value : null;
   }
 
   Future<void> _stopAndClose() async {
@@ -999,6 +1189,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _completionSubscription?.cancel();
     _pipChannel.setMethodCallHandler(null);
     _queueIndicatorTimer?.cancel();
+    _sleepTimer?.cancel();
+    unawaited(_castController.disconnect());
     _saveResumePosition(updateLibrary: false);
     aiSubtitleService.dispose();
     WakelockPlus.disable();
@@ -1330,6 +1522,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             }),
                             onMore: _showOptions,
                             onPip: _enterPip,
+                            onCast: _showCastSheet,
                             onSnapshot: _captureSnapshot,
                             onGif: _captureGif,
                             dialogueEnhancerEnabled: dialogueEnhancer,
@@ -1349,6 +1542,204 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   ),
                 ),
             ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _showCastSheet() async {
+    var devicesFuture = _castController.discover();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final connected = _castConnected && _castController.isConnected;
+          return ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .8,
+            ),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    connected ? 'Casting to TV' : 'Cast to TV',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (connected) ...[
+                    Text(
+                      _castController.session!.device.name,
+                      style: const TextStyle(color: NovaColors.muted),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        IconButton(
+                          onPressed: () => _castController.seek(Duration.zero),
+                          icon: const Icon(Icons.replay_10_rounded),
+                        ),
+                        IconButton(
+                          onPressed: () async {
+                            await _castController.play();
+                            setSheetState(() {});
+                          },
+                          icon: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: NovaColors.cyan,
+                            size: 32,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () async {
+                            await _castController.pause();
+                            setSheetState(() {});
+                          },
+                          icon: const Icon(
+                            Icons.pause_rounded,
+                            color: NovaColors.cyan,
+                            size: 32,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () =>
+                              _castController.seek(player.state.position),
+                          icon: const Icon(Icons.forward_10_rounded),
+                        ),
+                      ],
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.volume_up_outlined),
+                      title: const Text('TV volume'),
+                      trailing: SizedBox(
+                        width: 170,
+                        child: Slider(
+                          value: .75,
+                          onChanged: (value) =>
+                              _castController.setVolume(value),
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await _castController.disconnect();
+                          if (mounted) setState(() => _castConnected = false);
+                          if (sheetContext.mounted) Navigator.pop(sheetContext);
+                        },
+                        icon: const Icon(Icons.cast_connected_rounded),
+                        label: const Text('Disconnect'),
+                      ),
+                    ),
+                  ] else ...[
+                    FutureBuilder<List<CastDevice>>(
+                      future: devicesFuture,
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 28),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: NovaColors.cyan,
+                              ),
+                            ),
+                          );
+                        }
+                        final devices = snapshot.data ?? const <CastDevice>[];
+                        if (devices.isEmpty) {
+                          return Column(
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 20),
+                                child: Text(
+                                  'No Chromecast or DLNA devices found on this Wi-Fi network.',
+                                ),
+                              ),
+                              FilledButton.icon(
+                                onPressed: () => setSheetState(
+                                  () => devicesFuture = _castController
+                                      .discover(),
+                                ),
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Scan again'),
+                              ),
+                            ],
+                          );
+                        }
+                        return Column(
+                          children: devices
+                              .map(
+                                (device) => ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: Icon(
+                                    device.protocol == CastProtocol.chromecast
+                                        ? Icons.cast
+                                        : Icons.tv_rounded,
+                                    color: NovaColors.cyan,
+                                  ),
+                                  title: Text(device.name),
+                                  subtitle: Text(
+                                    device.protocol == CastProtocol.chromecast
+                                        ? 'Chromecast'
+                                        : 'DLNA / Smart TV',
+                                  ),
+                                  onTap: () async {
+                                    setSheetState(() => _castBusy = true);
+                                    try {
+                                      await _castController.connectAndLoad(
+                                        device,
+                                        _currentFile,
+                                      );
+                                      await player.pause();
+                                      if (mounted) {
+                                        setState(() => _castConnected = true);
+                                        _showHud(
+                                          'Casting to ${device.name}',
+                                          Icons.cast_connected_rounded,
+                                        );
+                                      }
+                                      if (sheetContext.mounted) {
+                                        Navigator.pop(sheetContext);
+                                      }
+                                    } catch (_) {
+                                      if (mounted) {
+                                        _showHud(
+                                          'Unable to connect to TV',
+                                          Icons.cast_outlined,
+                                        );
+                                      }
+                                    } finally {
+                                      if (sheetContext.mounted) {
+                                        setSheetState(() => _castBusy = false);
+                                      }
+                                    }
+                                  },
+                                ),
+                              )
+                              .toList(),
+                        );
+                      },
+                    ),
+                    if (_castBusy)
+                      const LinearProgressIndicator(color: NovaColors.cyan),
+                  ],
+                ],
+              ),
+            ),
           );
         },
       ),
@@ -1407,6 +1798,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           builder: (context, setSheetState) => _PlayerOptions(
             player: player,
             aiDubbingEnabled: dubbingEnabled,
+            sleepTimerLabel: _sleepUntilVideoEnd
+                ? 'End of current video'
+                : _sleepRemaining == null
+                ? 'Off'
+                : '${_formatSleepRemaining(_sleepRemaining!)} remaining',
+            onSleepTimer: () => _showSleepTimerSheet(
+              context,
+              onChanged: () => setSheetState(() {}),
+            ),
             onSubtitle: _showEmbeddedSubtitleTracks,
             onAiDubbingChanged: (value) => _handleAiDubbingToggle(
               dialogContext: context,
@@ -1582,6 +1982,7 @@ class _ControlsOverlay extends StatelessWidget {
     required this.onLock,
     required this.onMore,
     required this.onPip,
+    required this.onCast,
     required this.onSnapshot,
     required this.onGif,
     required this.dialogueEnhancerEnabled,
@@ -1604,6 +2005,7 @@ class _ControlsOverlay extends StatelessWidget {
   final VoidCallback onLock;
   final VoidCallback onMore;
   final VoidCallback onPip;
+  final VoidCallback onCast;
   final VoidCallback onSnapshot;
   final VoidCallback onGif;
   final bool dialogueEnhancerEnabled;
@@ -1658,6 +2060,11 @@ class _ControlsOverlay extends StatelessWidget {
                   IconButton(
                     onPressed: onPip,
                     icon: const Icon(Icons.picture_in_picture_alt_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Cast to TV',
+                    onPressed: onCast,
+                    icon: const Icon(Icons.cast_rounded),
                   ),
                   IconButton(
                     onPressed: onMore,
@@ -2129,11 +2536,15 @@ class _PlayerOptions extends StatelessWidget {
     required this.onSubtitle,
     required this.aiDubbingEnabled,
     required this.onAiDubbingChanged,
+    required this.sleepTimerLabel,
+    required this.onSleepTimer,
   });
   final Player player;
   final VoidCallback onSubtitle;
   final bool aiDubbingEnabled;
   final ValueChanged<bool> onAiDubbingChanged;
+  final String sleepTimerLabel;
+  final VoidCallback onSleepTimer;
   @override
   Widget build(BuildContext context) {
     final landscape =
@@ -2172,6 +2583,14 @@ class _PlayerOptions extends StatelessWidget {
           color: aiDubbingEnabled ? NovaColors.violet : Colors.white54,
         ),
         onChanged: onAiDubbingChanged,
+      ),
+      ListTile(
+        dense: landscape,
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.bedtime_outlined, color: NovaColors.cyan),
+        title: const Text('Sleep timer'),
+        subtitle: Text(sleepTimerLabel),
+        onTap: onSleepTimer,
       ),
       ListTile(
         dense: landscape,

@@ -39,6 +39,7 @@ dependencies:
   ffmpeg_kit_flutter_new: ^4.6.2
   saver_gallery: ^5.1.0
   flutter_tts: ^4.2.5
+  dart_cast: ^0.7.4
 
 dev_dependencies:
   flutter_test:

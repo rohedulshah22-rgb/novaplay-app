@@ -6,6 +6,7 @@ import '../../core/widgets/nova_widgets.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
 import '../media/presentation/video_card.dart';
+import '../media/presentation/audio_extraction_dialog.dart';
 import '../folders/folder_videos_screen.dart';
 import '../player/player_screen.dart';
 
@@ -191,6 +192,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           file: files[index],
                           compact: true,
                           onTap: () => openPlayer(files[index]),
+                          onMore: () =>
+                              showAudioExtractionDialog(context, files[index]),
                         ),
                       )
                     else
@@ -200,6 +203,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           child: VideoCard(
                             file: file,
                             onTap: () => openPlayer(file),
+                            onMore: () =>
+                                showAudioExtractionDialog(context, file),
                           ),
                         ),
                       ),
