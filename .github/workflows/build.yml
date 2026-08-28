@@ -49,6 +49,17 @@ jobs:
           if ! grep -q 'namespace' "$query_gradle"; then
             sed -i "/android {/a\\    namespace 'com.lucasjosino.on_audio_query'" "$query_gradle"
           fi
+          if ! grep -q 'sourceCompatibility JavaVersion.VERSION_17' "$query_gradle"; then
+            sed -i "/android {/a\\    compileOptions {\\n        sourceCompatibility JavaVersion.VERSION_17\\n        targetCompatibility JavaVersion.VERSION_17\\n    }" "$query_gradle"
+          fi
+          if ! grep -q 'KotlinCompile' "$query_gradle"; then
+            cat >> "$query_gradle" <<'EOF'
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    kotlinOptions { jvmTarget = "17" }
+}
+EOF
+          fi
 
       - name: Verify formatting
         run: dart format --output=none --set-exit-if-changed lib test

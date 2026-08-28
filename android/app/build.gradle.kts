@@ -10,7 +10,7 @@ dependencies {
 
 android {
     namespace = "com.novaplay.novaplay"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
