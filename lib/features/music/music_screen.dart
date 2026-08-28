@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/widgets/nova_widgets.dart';
 import 'music_audio_service.dart';
 
 class MusicScreen extends ConsumerStatefulWidget {
@@ -178,7 +180,7 @@ class _SongList extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
       itemCount: songs.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, index) => _SongTile(song: songs[index], onTap: onTap),
     );
   }
@@ -200,8 +202,9 @@ class _GroupedSongs extends StatelessWidget {
     for (final song in songs) {
       groups.putIfAbsent(groupBy(song), () => []).add(song);
     }
-    if (groups.isEmpty)
+    if (groups.isEmpty) {
       return const _MusicEmpty(message: 'Nothing to show yet.');
+    }
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
       children: groups.entries
@@ -381,10 +384,11 @@ class MusicPlayerScreen extends StatelessWidget {
         stream: audioHandler.mediaItem,
         builder: (context, snapshot) {
           final item = snapshot.data;
-          if (item == null)
+          if (item == null) {
             return const _MusicEmpty(
               message: 'Choose a song to start listening.',
             );
+          }
           return SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
@@ -420,7 +424,8 @@ class MusicPlayerScreen extends StatelessWidget {
                             duration.data?.inMilliseconds.toDouble() ?? 1;
                         final value =
                             (position.data?.inMilliseconds.toDouble() ?? 0)
-                                .clamp(0, max);
+                                .clamp(0, max)
+                                .toDouble();
                         return Column(
                           children: [
                             Slider(
@@ -466,8 +471,11 @@ class MusicPlayerScreen extends StatelessWidget {
                         stream: audioHandler.player.shuffleModeEnabledStream,
                         initialData: false,
                         builder: (_, value) => IconButton(
-                          onPressed: () =>
-                              audioHandler.setShuffleMode(value.data != true),
+                          onPressed: () => audioHandler.setShuffleMode(
+                            value.data == true
+                                ? AudioServiceShuffleMode.all
+                                : AudioServiceShuffleMode.none,
+                          ),
                           icon: Icon(
                             Icons.shuffle_rounded,
                             color: value.data == true

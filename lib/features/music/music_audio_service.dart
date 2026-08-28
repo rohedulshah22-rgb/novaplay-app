@@ -7,7 +7,7 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   NovaAudioHandler() {
     _player.playbackEventStream.listen(_broadcastState);
     _player.sequenceStateStream.listen((sequence) {
-      final item = sequence?.currentSource?.tag;
+      final item = sequence.currentSource?.tag;
       if (item is MediaItem) mediaItem.add(item);
     });
     _player.currentIndexStream.listen((index) {
@@ -39,7 +39,6 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       initialIndex: initialIndex
           .clamp(0, sources.isEmpty ? 0 : sources.length - 1)
           .toInt(),
-      useLazyPreparation: true,
     );
     queue.add(items);
     if (items.isNotEmpty) {
@@ -104,6 +103,8 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     await super.setRepeatMode(repeatMode);
   }
 
+  Future<void> setLoopMode(LoopMode mode) => _player.setLoopMode(mode);
+
   @override
   Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
     await _player.setShuffleModeEnabled(
@@ -161,21 +162,27 @@ Future<void> initNovaAudioService() async {
       androidNotificationIcon: 'mipmap/ic_launcher',
     ),
   );
-  audioHandler = handler as NovaAudioHandler;
+  audioHandler = handler;
   await audioHandler.configureSession();
 }
 
 final musicQuery = OnAudioQuery();
 String musicTitle(SongModel song) =>
     song.title.trim().isEmpty ? song.displayName : song.title;
-String musicArtist(SongModel song) =>
-    song.artist == '<unknown>' || song.artist.trim().isEmpty
-    ? 'Unknown artist'
-    : song.artist;
-String musicAlbum(SongModel song) =>
-    song.album == '<unknown>' || song.album.trim().isEmpty
-    ? 'Unknown album'
-    : song.album;
+String musicArtist(SongModel song) {
+  final artist = song.artist;
+  return artist == null || artist == '<unknown>' || artist.trim().isEmpty
+      ? 'Unknown artist'
+      : artist;
+}
+
+String musicAlbum(SongModel song) {
+  final album = song.album;
+  return album == null || album == '<unknown>' || album.trim().isEmpty
+      ? 'Unknown album'
+      : album;
+}
+
 String musicFolder(SongModel song) {
   final path = song.data;
   final separator = path.lastIndexOf('/');
