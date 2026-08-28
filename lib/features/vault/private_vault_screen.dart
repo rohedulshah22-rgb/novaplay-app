@@ -45,16 +45,16 @@ class _PrivateVaultScreenState extends State<PrivateVaultScreen>
 
   Future<void> _load() async {
     final service = privateVaultService;
-    final values = await Future.wait([
+    final values = await Future.wait<bool>([
       service.isConfigured(),
       service.biometricAvailable(),
       service.biometricEnabled(),
     ]);
     if (!mounted) return;
     setState(() {
-      configured = values[0] as bool;
-      biometricAvailable = values[1] as bool;
-      biometricEnabled = values[2] as bool;
+      configured = values[0];
+      biometricAvailable = values[1];
+      biometricEnabled = values[2];
       loading = false;
     });
     if (vaultSession.unlocked && configured) {

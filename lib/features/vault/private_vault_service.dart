@@ -149,8 +149,9 @@ class PrivateVaultService {
 
   Future<PrivateVaultEntry> moveToVault(VideoFile file) async {
     final current = await entries();
-    if (current.any((entry) => entry.id == file.id))
+    if (current.any((entry) => entry.id == file.id)) {
       return current.firstWhere((entry) => entry.id == file.id);
+    }
 
     final result = await _mediaChannel
         .invokeMethod<Map<dynamic, dynamic>>('moveToVault', {
