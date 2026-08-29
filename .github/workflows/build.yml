@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Checkout Source
@@ -37,44 +37,37 @@ jobs:
         run: |
           python3 - << 'EOF'
           import glob, os
-
           cache_dir = os.path.expanduser('~/.pub-cache/hosted/pub.dev')
           target_files = glob.glob(os.path.join(cache_dir, 'on_audio_query_android*', 'android', 'build.gradle'))
-
           for file_path in target_files:
               with open(file_path, 'r') as f:
                   content = f.read()
-
               if 'namespace' not in content:
                   content = content.replace('android {', "android {\n    namespace 'com.lucasjosino.on_audio_query'")
-
               if 'sourceCompatibility JavaVersion.VERSION_17' not in content:
                   compile_opts = "android {\n    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }"
                   content = content.replace('android {', compile_opts, 1)
-
               if 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile)' not in content:
                   content += "\ntasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach { kotlinOptions { jvmTarget = '17' } }\n"
-
               with open(file_path, 'w') as f:
                   f.write(content)
-              print(f"Successfully patched: {file_path}")
           EOF
 
-      - name: Build Optimized Split APKs
-        run: flutter build apk --release --split-per-abi --no-tree-shake-icons
+      - name: Build Arm64 Lightweight APK
+        run: flutter build apk --release --target-platform android-arm64 --no-tree-shake-icons
 
-      - name: Upload Release APKs
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: novaplay-optimized-apks
-          path: build/app/outputs/flutter-apk/*.apk
+          name: novaplay-arm64-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Build Optimized App Bundle
+      - name: Build Optimized App Bundle (For Store)
         run: flutter build appbundle --release --no-tree-shake-icons
 
       - name: Upload Release App Bundle
         uses: actions/upload-artifact@v4
         with:
-          name: novaplay-optimized-aab
+          name: novaplay-app-bundle
           path: build/app/outputs/bundle/release/app-release.aab
           
