@@ -11,6 +11,16 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      - name: Add Virtual RAM (Swap Space) to prevent Crash
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          mkdir -p ~/.gradle
+          echo "org.gradle.jvmargs=-Xmx3072M -XX:MaxMetaspaceSize=1024m" > ~/.gradle/gradle.properties
+          echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
+
       - name: Checkout Source
         uses: actions/checkout@v4
 
