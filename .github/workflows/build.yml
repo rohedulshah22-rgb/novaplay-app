@@ -11,15 +11,12 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Add Virtual RAM (Swap Space) to prevent Crash
+      - name: Limit Gradle Memory Usage
         run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
           mkdir -p ~/.gradle
-          echo "org.gradle.jvmargs=-Xmx3072M -XX:MaxMetaspaceSize=1024m" > ~/.gradle/gradle.properties
-          echo "org.gradle.daemon=false" >> ~/.gradle/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" > ~/.gradle/gradle.properties
+          echo "org.gradle.parallel=false" >> ~/.gradle/gradle.properties
+          echo "org.gradle.workers.max=1" >> ~/.gradle/gradle.properties
 
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -72,7 +69,7 @@ jobs:
           name: novaplay-arm64-apk
           path: build/app/outputs/flutter-apk/app-release.apk
 
-      - name: Build Optimized App Bundle (For Store)
+      - name: Build Optimized App Bundle
         run: flutter build appbundle --release --no-tree-shake-icons
 
       - name: Upload Release App Bundle
