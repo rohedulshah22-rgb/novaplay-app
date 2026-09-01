@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:ffmpeg_kit_audio_flutter/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_audio_flutter/return_code.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
