@@ -23,7 +23,6 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
   Duration _duration = Duration.zero;
   Duration _start = Duration.zero;
   Duration _end = const Duration(seconds: 30);
-  Duration _position = Duration.zero;
   bool _loading = true;
   bool _working = false;
   bool _previewing = false;
@@ -63,7 +62,6 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
           _previewPlayer.seek(_start);
           setState(() => _previewing = false);
         }
-        setState(() => _position = position);
       });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
