@@ -163,8 +163,6 @@ jobs:
       - name: Build production App Bundle
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
-                  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError"
-                  
         run: flutter build appbundle --release --no-shrink
 
       - name: Verify production App Bundle
