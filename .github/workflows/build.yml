@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  build-release-aab:
-    name: Analyze, test, and build production release App Bundle
+  build-release-apk:
+    name: Build production release APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -94,6 +94,69 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+
+  build-release-aab:
+    name: Build production release App Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.1'
+          cache: true
+
+      - name: Clear stale pub.dev credentials
+        run: dart pub token remove https://pub.dev || true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Patch legacy on_audio_query Android namespace
+        shell: bash
+        run: |
+          query_gradle=$(find "$PUB_CACHE/hosted/pub.dev" -path '*/on_audio_query_android-*/android/build.gradle' -print -quit)
+          if [ -z "$query_gradle" ]; then
+            echo 'on_audio_query_android build.gradle was not found'
+            exit 1
+          fi
+          if ! grep -q 'namespace' "$query_gradle"; then
+            sed -i "/android {/a\\    namespace 'com.lucasjosino.on_audio_query'" "$query_gradle"
+          fi
+          if ! grep -q 'sourceCompatibility JavaVersion.VERSION_17' "$query_gradle"; then
+            sed -i "/android {/a\\    compileOptions {\\n        sourceCompatibility JavaVersion.VERSION_17\\n        targetCompatibility JavaVersion.VERSION_17\\n    }" "$query_gradle"
+          fi
+          if ! grep -q 'KotlinCompile' "$query_gradle"; then
+            printf '\\n%s\\n' 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {' '    kotlinOptions { jvmTarget = "17" }' '}' >> "$query_gradle"
+          fi
+
+      - name: Format Dart sources
+        run: dart format lib test
 
       - name: Build production App Bundle
         env:
