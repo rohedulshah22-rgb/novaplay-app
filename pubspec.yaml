@@ -47,7 +47,7 @@ dependencies:
   dart_cast: ^0.7.4
   google_mobile_ads: ^9.1.0
   ringtone_set_plus: ^0.0.2+2
-  share_plus: ^10.1.4
+  share_plus: ^13.3.0
 
 dev_dependencies:
   flutter_test:
