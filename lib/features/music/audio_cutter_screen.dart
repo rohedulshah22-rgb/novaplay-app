@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
@@ -24,7 +23,6 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
   Duration _duration = Duration.zero;
   Duration _start = Duration.zero;
   Duration _end = const Duration(seconds: 30);
-  Duration _position = Duration.zero;
   bool _loading = true;
   bool _working = false;
   bool _previewing = false;
@@ -202,7 +200,7 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
                     decoration: BoxDecoration(
                       color: NovaColors.surface,
                       borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: NovaColors.outline),
+                      border: Border.all(color: NovaColors.border),
                     ),
                     child: CustomPaint(
                       painter: _WaveformPainter(
