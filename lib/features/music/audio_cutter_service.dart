@@ -30,7 +30,9 @@ class AudioCutterService {
       throw ArgumentError('End time must be after start time.');
     }
     final directory = await getTemporaryDirectory();
-    final name = _safeName(outputName ?? 'NovaPlay_Cut_${DateTime.now().millisecondsSinceEpoch}.mp3');
+    final name = _safeName(
+      outputName ?? 'NovaPlay_Cut_${DateTime.now().millisecondsSinceEpoch}.mp3',
+    );
     final output = File('${directory.path}/$name');
     if (await output.exists()) await output.delete();
 
@@ -91,13 +93,20 @@ class AudioCutterService {
     );
   }
 
-  String _seconds(Duration duration) => (duration.inMilliseconds / 1000).toStringAsFixed(3);
+  String _seconds(Duration duration) =>
+      (duration.inMilliseconds / 1000).toStringAsFixed(3);
 
   String _quote(String value) => "'${value.replaceAll("'", "'\\''")}'";
 
   String _safeName(String value) {
-    final withoutExtension = value.replaceFirst(RegExp(r'\.mp3$', caseSensitive: false), '');
-    final cleaned = withoutExtension.replaceAll(RegExp(r'[^A-Za-z0-9._-]+'), '_');
+    final withoutExtension = value.replaceFirst(
+      RegExp(r'\.mp3$', caseSensitive: false),
+      '',
+    );
+    final cleaned = withoutExtension.replaceAll(
+      RegExp(r'[^A-Za-z0-9._-]+'),
+      '_',
+    );
     return cleaned.isEmpty ? 'NovaPlay_Audio' : cleaned;
   }
 }

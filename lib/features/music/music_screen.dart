@@ -103,14 +103,78 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           children: [
-            Text(musicTitle(song), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            Text(
+              musicTitle(song),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
             const SizedBox(height: 10),
-            ListTile(leading: const Icon(Icons.content_cut_rounded, color: NovaColors.cyan), title: const Text('Cut / Trim Audio'), onTap: () { Navigator.pop(sheetContext); Navigator.of(context).push(MaterialPageRoute(builder: (_) => AudioCutterScreen(song: song))); }),
-            ListTile(leading: const Icon(Icons.phone_android_rounded), title: const Text('Set as Phone Ringtone'), onTap: () async { Navigator.pop(sheetContext); await _setOriginalTone(song, 'ringtone'); }),
-            ListTile(leading: const Icon(Icons.notifications_active_outlined), title: const Text('Set as Notification Sound'), onTap: () async { Navigator.pop(sheetContext); await _setOriginalTone(song, 'notification'); }),
-            ListTile(leading: const Icon(Icons.alarm_rounded), title: const Text('Set as Alarm Tone'), onTap: () async { Navigator.pop(sheetContext); await _setOriginalTone(song, 'alarm'); }),
-            ListTile(leading: const Icon(Icons.share_rounded), title: const Text('Share Audio File'), onTap: () async { Navigator.pop(sheetContext); try { await audioCutterService.share(AudioCutResult(path: song.data, duration: Duration(milliseconds: song.duration ?? 0)), title: musicTitle(song)); } catch (error) { if (mounted) _message('Could not share audio: $error'); } }),
-            ListTile(leading: const Icon(Icons.info_outline_rounded), title: const Text('Song Details'), onTap: () { Navigator.pop(sheetContext); _showSongDetails(song); }),
+            ListTile(
+              leading: const Icon(
+                Icons.content_cut_rounded,
+                color: NovaColors.cyan,
+              ),
+              title: const Text('Cut / Trim Audio'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AudioCutterScreen(song: song),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.phone_android_rounded),
+              title: const Text('Set as Phone Ringtone'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _setOriginalTone(song, 'ringtone');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Set as Notification Sound'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _setOriginalTone(song, 'notification');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.alarm_rounded),
+              title: const Text('Set as Alarm Tone'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _setOriginalTone(song, 'alarm');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_rounded),
+              title: const Text('Share Audio File'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                try {
+                  await audioCutterService.share(
+                    AudioCutResult(
+                      path: song.data,
+                      duration: Duration(milliseconds: song.duration ?? 0),
+                    ),
+                    title: musicTitle(song),
+                  );
+                } catch (error) {
+                  if (mounted) _message('Could not share audio: $error');
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline_rounded),
+              title: const Text('Song Details'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _showSongDetails(song);
+              },
+            ),
           ],
         ),
       ),
@@ -119,7 +183,10 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
 
   Future<void> _setOriginalTone(SongModel song, String type) async {
     try {
-      final clip = AudioCutResult(path: song.data, duration: Duration(milliseconds: song.duration ?? 0));
+      final clip = AudioCutResult(
+        path: song.data,
+        duration: Duration(milliseconds: song.duration ?? 0),
+      );
       switch (type) {
         case 'ringtone':
           await audioCutterService.setAsRingtone(clip);
@@ -135,10 +202,26 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
   }
 
   void _showSongDetails(SongModel song) {
-    showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Song Details'), content: Text('Title: ${musicTitle(song)}\\nArtist: ${musicArtist(song)}\\nAlbum: ${musicAlbum(song)}\\nDuration: ${formatMusicDuration(song.duration)}\\nPath: ${song.data}'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Song Details'),
+        content: Text(
+          'Title: ${musicTitle(song)}\\nArtist: ${musicArtist(song)}\\nAlbum: ${musicAlbum(song)}\\nDuration: ${formatMusicDuration(song.duration)}\\nPath: ${song.data}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _message(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  void _message(String message) =>
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
 
   @override
   Widget build(BuildContext context) {
@@ -200,7 +283,11 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
           : TabBarView(
               controller: _tabs,
               children: [
-                _SongList(songs: visibleSongs, onTap: _play, onMore: _openSongActions),
+                _SongList(
+                  songs: visibleSongs,
+                  onTap: _play,
+                  onMore: _openSongActions,
+                ),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicAlbum,
@@ -226,7 +313,11 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
 }
 
 class _SongList extends StatelessWidget {
-  const _SongList({required this.songs, required this.onTap, required this.onMore});
+  const _SongList({
+    required this.songs,
+    required this.onTap,
+    required this.onMore,
+  });
   final List<SongModel> songs;
   final Future<void> Function(SongModel) onTap;
   final Future<void> Function(SongModel) onMore;
@@ -240,7 +331,8 @@ class _SongList extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
       itemCount: songs.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (_, index) => _SongTile(song: songs[index], onTap: onTap, onMore: onMore),
+      itemBuilder: (_, index) =>
+          _SongTile(song: songs[index], onTap: onTap, onMore: onMore),
     );
   }
 }
@@ -350,8 +442,14 @@ class _SongTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(formatMusicDuration(song.duration), style: const TextStyle(color: NovaColors.muted, fontSize: 11)),
-          IconButton(onPressed: () => onMore(song), icon: const Icon(Icons.more_vert_rounded)),
+          Text(
+            formatMusicDuration(song.duration),
+            style: const TextStyle(color: NovaColors.muted, fontSize: 11),
+          ),
+          IconButton(
+            onPressed: () => onMore(song),
+            icon: const Icon(Icons.more_vert_rounded),
+          ),
         ],
       ),
       onTap: () => onTap(song),

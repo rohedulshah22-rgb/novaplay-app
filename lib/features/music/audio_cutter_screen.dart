@@ -45,9 +45,11 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
 
   Future<void> _preparePreview() async {
     try {
-      final duration = await _previewPlayer.setFilePath(widget.song.data) ?? Duration.zero;
+      final duration =
+          await _previewPlayer.setFilePath(widget.song.data) ?? Duration.zero;
       if (!mounted) return;
-      final defaultEnd = duration.inMilliseconds < const Duration(seconds: 30).inMilliseconds
+      final defaultEnd =
+          duration.inMilliseconds < const Duration(seconds: 30).inMilliseconds
           ? duration
           : const Duration(seconds: 30);
       setState(() {
@@ -104,7 +106,10 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
     }
   }
 
-  Future<void> _runAction(String label, Future<void> Function(AudioCutResult) action) async {
+  Future<void> _runAction(
+    String label,
+    Future<void> Function(AudioCutResult) action,
+  ) async {
     final result = _result;
     if (result == null) {
       await _trim();
@@ -119,17 +124,27 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
   }
 
   void _message(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final maxMs = _duration.inMilliseconds.toDouble().clamp(1, double.infinity).toDouble();
+    final maxMs = _duration.inMilliseconds
+        .toDouble()
+        .clamp(1, double.infinity)
+        .toDouble();
     final startMs = _start.inMilliseconds.toDouble().clamp(0, maxMs).toDouble();
-    final endMs = _end.inMilliseconds.toDouble().clamp(startMs, maxMs).toDouble();
+    final endMs = _end.inMilliseconds
+        .toDouble()
+        .clamp(startMs, maxMs)
+        .toDouble();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Audio Cutter', style: TextStyle(fontWeight: FontWeight.w900)),
+        title: const Text(
+          'Audio Cutter',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
         actions: [
           IconButton(
             tooltip: 'Song details',
@@ -159,9 +174,22 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(musicTitle(widget.song), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                            Text(
+                              musicTitle(widget.song),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                             const SizedBox(height: 5),
-                            Text('${musicArtist(widget.song)} • ${musicAlbum(widget.song)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: NovaColors.muted)),
+                            Text(
+                              '${musicArtist(widget.song)} • ${musicAlbum(widget.song)}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: NovaColors.muted),
+                            ),
                           ],
                         ),
                       ),
@@ -171,8 +199,17 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
                   Container(
                     height: 136,
                     padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(color: NovaColors.surface, borderRadius: BorderRadius.circular(22), border: Border.all(color: NovaColors.outline)),
-                    child: CustomPaint(painter: _WaveformPainter(start: startMs / maxMs, end: endMs / maxMs)),
+                    decoration: BoxDecoration(
+                      color: NovaColors.surface,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: NovaColors.outline),
+                    ),
+                    child: CustomPaint(
+                      painter: _WaveformPainter(
+                        start: startMs / maxMs,
+                        end: endMs / maxMs,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 10),
                   RangeSlider(
@@ -191,31 +228,93 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _TimeLabel(label: 'START', value: _format(_start)),
-                      _TimeLabel(label: 'LENGTH', value: _format(_end - _start)),
+                      _TimeLabel(
+                        label: 'LENGTH',
+                        value: _format(_end - _start),
+                      ),
                       _TimeLabel(label: 'END', value: _format(_end)),
                     ],
                   ),
                   const SizedBox(height: 18),
                   FilledButton.icon(
                     onPressed: _working ? null : _togglePreview,
-                    icon: Icon(_previewing ? Icons.pause_rounded : Icons.play_arrow_rounded),
-                    label: Text(_previewing ? 'Pause preview' : 'Preview selected segment'),
+                    icon: Icon(
+                      _previewing
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                    ),
+                    label: Text(
+                      _previewing
+                          ? 'Pause preview'
+                          : 'Preview selected segment',
+                    ),
                   ),
                   const SizedBox(height: 10),
                   OutlinedButton.icon(
                     onPressed: _working ? null : _trim,
-                    icon: _working ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.content_cut_rounded),
+                    icon: _working
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.content_cut_rounded),
                     label: Text(_working ? 'Trimming…' : 'Trim audio'),
                   ),
                   if (_result != null) ...[
                     const SizedBox(height: 24),
-                    const Text('Use this clip', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                    const Text(
+                      'Use this clip',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 17,
+                      ),
+                    ),
                     const SizedBox(height: 8),
-                    _ActionTile(icon: Icons.save_alt_rounded, title: 'Save to Music/NovaPlay', onTap: () => _runAction('Save', (result) async { await audioCutterService.saveToMusic(result, title: '${musicTitle(widget.song)}_clip'); })),
-                    _ActionTile(icon: Icons.phone_android_rounded, title: 'Set as Phone Ringtone', onTap: () => _runAction('Ringtone', audioCutterService.setAsRingtone)),
-                    _ActionTile(icon: Icons.notifications_active_outlined, title: 'Set as Notification Tone', onTap: () => _runAction('Notification tone', audioCutterService.setAsNotification)),
-                    _ActionTile(icon: Icons.alarm_rounded, title: 'Set as Alarm Tone', onTap: () => _runAction('Alarm tone', audioCutterService.setAsAlarm)),
-                    _ActionTile(icon: Icons.share_rounded, title: 'Share audio clip', onTap: () => _runAction('Share', (result) async { await audioCutterService.share(result, title: musicTitle(widget.song)); })),
+                    _ActionTile(
+                      icon: Icons.save_alt_rounded,
+                      title: 'Save to Music/NovaPlay',
+                      onTap: () => _runAction('Save', (result) async {
+                        await audioCutterService.saveToMusic(
+                          result,
+                          title: '${musicTitle(widget.song)}_clip',
+                        );
+                      }),
+                    ),
+                    _ActionTile(
+                      icon: Icons.phone_android_rounded,
+                      title: 'Set as Phone Ringtone',
+                      onTap: () => _runAction(
+                        'Ringtone',
+                        audioCutterService.setAsRingtone,
+                      ),
+                    ),
+                    _ActionTile(
+                      icon: Icons.notifications_active_outlined,
+                      title: 'Set as Notification Tone',
+                      onTap: () => _runAction(
+                        'Notification tone',
+                        audioCutterService.setAsNotification,
+                      ),
+                    ),
+                    _ActionTile(
+                      icon: Icons.alarm_rounded,
+                      title: 'Set as Alarm Tone',
+                      onTap: () => _runAction(
+                        'Alarm tone',
+                        audioCutterService.setAsAlarm,
+                      ),
+                    ),
+                    _ActionTile(
+                      icon: Icons.share_rounded,
+                      title: 'Share audio clip',
+                      onTap: () => _runAction('Share', (result) async {
+                        await audioCutterService.share(
+                          result,
+                          title: musicTitle(widget.song),
+                        );
+                      }),
+                    ),
                   ],
                 ],
               ),
@@ -226,7 +325,10 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
   String _format(Duration value) {
     final minutes = value.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = value.inSeconds.remainder(60).toString().padLeft(2, '0');
-    final millis = value.inMilliseconds.remainder(1000).toString().padLeft(3, '0');
+    final millis = value.inMilliseconds
+        .remainder(1000)
+        .toString()
+        .padLeft(3, '0');
     return '${value.inHours > 0 ? '${value.inHours}:' : ''}$minutes:$seconds.$millis';
   }
 
@@ -235,8 +337,15 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Song Details'),
-        content: Text('Title: ${musicTitle(widget.song)}\nArtist: ${musicArtist(widget.song)}\nAlbum: ${musicAlbum(widget.song)}\nDuration: ${formatMusicDuration(widget.song.duration)}\nPath: ${widget.song.data}'),
-        actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))],
+        content: Text(
+          'Title: ${musicTitle(widget.song)}\nArtist: ${musicArtist(widget.song)}\nAlbum: ${musicAlbum(widget.song)}\nDuration: ${formatMusicDuration(widget.song.duration)}\nPath: ${widget.song.data}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -247,23 +356,62 @@ class _TimeLabel extends StatelessWidget {
   final String label;
   final String value;
   @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: const TextStyle(color: NovaColors.muted, fontSize: 10, fontWeight: FontWeight.w800)), Text(value, style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]))]);
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: const TextStyle(
+          color: NovaColors.muted,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      Text(
+        value,
+        style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+      ),
+    ],
+  );
 }
 
 class _ActionTile extends StatelessWidget {
-  const _ActionTile({required this.icon, required this.title, required this.onTap});
+  const _ActionTile({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
   final IconData icon;
   final String title;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => ListTile(contentPadding: EdgeInsets.zero, leading: Icon(icon, color: NovaColors.cyan), title: Text(title), onTap: onTap);
+  Widget build(BuildContext context) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    leading: Icon(icon, color: NovaColors.cyan),
+    title: Text(title),
+    onTap: onTap,
+  );
 }
 
 class _Artwork extends StatelessWidget {
   const _Artwork({required this.size});
   final double size;
   @override
-  Widget build(BuildContext context) => Container(width: size, height: size, decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), gradient: const LinearGradient(colors: [NovaColors.cyan, NovaColors.violet])), child: Icon(Icons.music_note_rounded, size: size * .42, color: NovaColors.black));
+  Widget build(BuildContext context) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(16),
+      gradient: const LinearGradient(
+        colors: [NovaColors.cyan, NovaColors.violet],
+      ),
+    ),
+    child: Icon(
+      Icons.music_note_rounded,
+      size: size * .42,
+      color: NovaColors.black,
+    ),
+  );
 }
 
 class _WaveformPainter extends CustomPainter {
@@ -272,18 +420,41 @@ class _WaveformPainter extends CustomPainter {
   final double end;
   @override
   void paint(Canvas canvas, Size size) {
-    final bars = Paint()..strokeWidth = 3..strokeCap = StrokeCap.round;
-    final selected = Paint()..color = NovaColors.cyan..strokeWidth = 3..strokeCap = StrokeCap.round;
+    final bars = Paint()
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    final selected = Paint()
+      ..color = NovaColors.cyan
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
     for (var index = 0; index < 64; index++) {
       final x = index / 63 * size.width;
       final height = size.height * (0.18 + ((index * 37) % 71) / 100);
       final isSelected = index / 63 >= start && index / 63 <= end;
-      canvas.drawLine(Offset(x, (size.height - height) / 2), Offset(x, (size.height + height) / 2), isSelected ? selected : (bars..color = NovaColors.muted.withValues(alpha: .4)));
+      canvas.drawLine(
+        Offset(x, (size.height - height) / 2),
+        Offset(x, (size.height + height) / 2),
+        isSelected
+            ? selected
+            : (bars..color = NovaColors.muted.withValues(alpha: .4)),
+      );
     }
-    final marker = Paint()..color = NovaColors.violet..strokeWidth = 2;
-    canvas.drawLine(Offset(size.width * start, 0), Offset(size.width * start, size.height), marker);
-    canvas.drawLine(Offset(size.width * end, 0), Offset(size.width * end, size.height), marker);
+    final marker = Paint()
+      ..color = NovaColors.violet
+      ..strokeWidth = 2;
+    canvas.drawLine(
+      Offset(size.width * start, 0),
+      Offset(size.width * start, size.height),
+      marker,
+    );
+    canvas.drawLine(
+      Offset(size.width * end, 0),
+      Offset(size.width * end, size.height),
+      marker,
+    );
   }
+
   @override
-  bool shouldRepaint(covariant _WaveformPainter oldDelegate) => oldDelegate.start != start || oldDelegate.end != end;
+  bool shouldRepaint(covariant _WaveformPainter oldDelegate) =>
+      oldDelegate.start != start || oldDelegate.end != end;
 }
