@@ -37,7 +37,7 @@ dependencies:
   path: ^1.9.1
   local_auth: ^3.0.2
   flutter_secure_storage: ^11.0.0
-  ffmpeg_kit_flutter_new: ^4.6.2
+  ffmpeg_kit_audio_flutter: ^1.1.0
   saver_gallery: ^5.1.0
   flutter_tts: ^4.2.5
   just_audio: ^0.10.6
