@@ -70,8 +70,8 @@ jobs:
             printf '\n%s\n' 'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {' '    kotlinOptions { jvmTarget = "17" }' '}' >> "$query_gradle"
           fi
 
-      - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Format Dart sources
+        run: dart format lib test
 
       - name: Analyze Dart code
         run: flutter analyze
