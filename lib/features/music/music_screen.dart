@@ -7,6 +7,8 @@ import 'package:on_audio_query/on_audio_query.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../ads/admob_banner.dart';
+import 'audio_cutter_screen.dart';
+import 'audio_cutter_service.dart';
 import 'music_audio_service.dart';
 
 class MusicScreen extends ConsumerStatefulWidget {
@@ -90,6 +92,54 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
     await currentAudioHandler.play();
   }
 
+  Future<void> _openSongActions(SongModel song) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          children: [
+            Text(musicTitle(song), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 10),
+            ListTile(leading: const Icon(Icons.content_cut_rounded, color: NovaColors.cyan), title: const Text('Cut / Trim Audio'), onTap: () { Navigator.pop(sheetContext); Navigator.of(context).push(MaterialPageRoute(builder: (_) => AudioCutterScreen(song: song))); }),
+            ListTile(leading: const Icon(Icons.phone_android_rounded), title: const Text('Set as Phone Ringtone'), onTap: () async { Navigator.pop(sheetContext); await _setOriginalTone(song, 'ringtone'); }),
+            ListTile(leading: const Icon(Icons.notifications_active_outlined), title: const Text('Set as Notification Sound'), onTap: () async { Navigator.pop(sheetContext); await _setOriginalTone(song, 'notification'); }),
+            ListTile(leading: const Icon(Icons.alarm_rounded), title: const Text('Set as Alarm Tone'), onTap: () async { Navigator.pop(sheetContext); await _setOriginalTone(song, 'alarm'); }),
+            ListTile(leading: const Icon(Icons.share_rounded), title: const Text('Share Audio File'), onTap: () async { Navigator.pop(sheetContext); try { await audioCutterService.share(AudioCutResult(path: song.data, duration: Duration(milliseconds: song.duration ?? 0)), title: musicTitle(song)); } catch (error) { if (mounted) _message('Could not share audio: $error'); } }),
+            ListTile(leading: const Icon(Icons.info_outline_rounded), title: const Text('Song Details'), onTap: () { Navigator.pop(sheetContext); _showSongDetails(song); }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _setOriginalTone(SongModel song, String type) async {
+    try {
+      final clip = AudioCutResult(path: song.data, duration: Duration(milliseconds: song.duration ?? 0));
+      switch (type) {
+        case 'ringtone':
+          await audioCutterService.setAsRingtone(clip);
+        case 'notification':
+          await audioCutterService.setAsNotification(clip);
+        case 'alarm':
+          await audioCutterService.setAsAlarm(clip);
+      }
+      if (mounted) _message('System tone updated.');
+    } catch (error) {
+      if (mounted) _message('Could not set system tone: $error');
+    }
+  }
+
+  void _showSongDetails(SongModel song) {
+    showDialog<void>(context: context, builder: (dialogContext) => AlertDialog(title: const Text('Song Details'), content: Text('Title: ${musicTitle(song)}\\nArtist: ${musicArtist(song)}\\nAlbum: ${musicAlbum(song)}\\nDuration: ${formatMusicDuration(song.duration)}\\nPath: ${song.data}'), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close'))]));
+  }
+
+  void _message(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -150,21 +200,24 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
           : TabBarView(
               controller: _tabs,
               children: [
-                _SongList(songs: visibleSongs, onTap: _play),
+                _SongList(songs: visibleSongs, onTap: _play, onMore: _openSongActions),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicAlbum,
                   onTap: _play,
+                  onMore: _openSongActions,
                 ),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicArtist,
                   onTap: _play,
+                  onMore: _openSongActions,
                 ),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicFolder,
                   onTap: _play,
+                  onMore: _openSongActions,
                 ),
               ],
             ),
@@ -173,9 +226,10 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
 }
 
 class _SongList extends StatelessWidget {
-  const _SongList({required this.songs, required this.onTap});
+  const _SongList({required this.songs, required this.onTap, required this.onMore});
   final List<SongModel> songs;
   final Future<void> Function(SongModel) onTap;
+  final Future<void> Function(SongModel) onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +240,7 @@ class _SongList extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
       itemCount: songs.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (_, index) => _SongTile(song: songs[index], onTap: onTap),
+      itemBuilder: (_, index) => _SongTile(song: songs[index], onTap: onTap, onMore: onMore),
     );
   }
 }
@@ -196,10 +250,12 @@ class _GroupedSongs extends StatelessWidget {
     required this.songs,
     required this.groupBy,
     required this.onTap,
+    required this.onMore,
   });
   final List<SongModel> songs;
   final String Function(SongModel) groupBy;
   final Future<void> Function(SongModel) onTap;
+  final Future<void> Function(SongModel) onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -239,6 +295,7 @@ class _GroupedSongs extends StatelessWidget {
                           (song) => _SongTile(
                             song: song,
                             onTap: onTap,
+                            onMore: onMore,
                             compact: true,
                           ),
                         ),
@@ -256,10 +313,12 @@ class _SongTile extends StatelessWidget {
   const _SongTile({
     required this.song,
     required this.onTap,
+    required this.onMore,
     this.compact = false,
   });
   final SongModel song;
   final Future<void> Function(SongModel) onTap;
+  final Future<void> Function(SongModel) onMore;
   final bool compact;
 
   @override
@@ -288,9 +347,12 @@ class _SongTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: Text(
-        formatMusicDuration(song.duration),
-        style: const TextStyle(color: NovaColors.muted, fontSize: 11),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(formatMusicDuration(song.duration), style: const TextStyle(color: NovaColors.muted, fontSize: 11)),
+          IconButton(onPressed: () => onMore(song), icon: const Icon(Icons.more_vert_rounded)),
+        ],
       ),
       onTap: () => onTap(song),
     );
