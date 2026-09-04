@@ -88,12 +88,21 @@ jobs:
         run: test -s build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload production APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: novaplay-production-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish universal APK release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="novaplay-build-${{ github.run_id }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "NovaPlay build ${{ github.run_number }}" --notes "Universal APK and production AAB for NovaPlay." --prerelease || true
+          gh release upload "$tag" build/app/outputs/flutter-apk/app-release.apk --clobber
 
 
   build-release-aab:
@@ -169,9 +178,18 @@ jobs:
         run: test -s build/app/outputs/bundle/release/app-release.aab
 
       - name: Upload production App Bundle
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: novaplay-production-aab
           path: build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish App Bundle release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="novaplay-build-${{ github.run_id }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "NovaPlay build ${{ github.run_number }}" --notes "Universal APK and production AAB for NovaPlay." --prerelease || true
+          gh release upload "$tag" build/app/outputs/bundle/release/app-release.aab --clobber
