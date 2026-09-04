@@ -316,6 +316,18 @@ class MediaRepository {
     );
   }
 
+  Future<void> deleteFile({required String path, String? contentUri}) async {
+    if (!Platform.isAndroid) {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+      return;
+    }
+    await _mediaChannel.invokeMethod<void>('deleteMedia', {
+      'path': path,
+      if (contentUri != null) 'uri': contentUri,
+    });
+  }
+
   Future<void> clearPlaybackHistory() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_historyKey);

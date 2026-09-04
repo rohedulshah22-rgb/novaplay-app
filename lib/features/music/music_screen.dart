@@ -9,6 +9,7 @@ import '../../core/widgets/nova_widgets.dart';
 import '../ads/admob_banner.dart';
 import 'audio_cutter_screen.dart';
 import 'audio_cutter_service.dart';
+import '../media/data/media_repository.dart';
 import 'music_audio_service.dart';
 
 class MusicScreen extends ConsumerStatefulWidget {
@@ -150,6 +151,28 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
               },
             ),
             ListTile(
+              leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.redAccent,
+              ),
+              title: const Text('Delete File'),
+              subtitle: const Text(
+                'Permanently remove this file from the device',
+              ),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final confirmed = await _confirmDeleteSong(song);
+                if (!confirmed || !mounted) return;
+                try {
+                  await const MediaRepository().deleteFile(path: song.data);
+                  await _refresh();
+                  if (mounted) _message('File deleted');
+                } catch (error) {
+                  if (mounted) _message('Could not delete file: $error');
+                }
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.share_rounded),
               title: const Text('Share Audio File'),
               onTap: () async {
@@ -199,6 +222,30 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
     } catch (error) {
       if (mounted) _message('Could not set system tone: $error');
     }
+  }
+
+  Future<bool> _confirmDeleteSong(SongModel song) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete File?'),
+        content: const Text(
+          'Are you sure you want to delete this file from your device?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    return result == true;
   }
 
   void _showSongDetails(SongModel song) {

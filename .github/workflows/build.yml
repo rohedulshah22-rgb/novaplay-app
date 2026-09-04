@@ -82,7 +82,7 @@ jobs:
       - name: Build production APK for device testing
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
-        run: flutter build apk --release --no-shrink --target-platform android-arm64
+        run: flutter build apk --release --no-shrink
 
       - name: Verify production APK
         run: test -s build/app/outputs/flutter-apk/app-release.apk

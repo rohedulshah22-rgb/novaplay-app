@@ -82,6 +82,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                 "publishAudio" -> publishAudio(call, result)
                 "moveToVault" -> moveToVault(call, result)
                 "restoreFromVault" -> restoreFromVault(call, result)
+                "deleteMedia" -> deleteMedia(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -242,6 +243,78 @@ class MainActivity : AudioServiceFragmentActivity() {
         }
         startActivity(intent)
         result.success(true)
+    }
+
+    private fun deleteMedia(call: MethodCall, result: MethodChannel.Result) {
+        val path = call.argument<String>("path")
+        val uriValue = call.argument<String>("uri")
+        if (path.isNullOrBlank() && uriValue.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENT", "path or uri is required", null)
+            return
+        }
+        executor.execute {
+            try {
+                var deleted = 0
+                if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
+                    deleted = contentResolver.delete(Uri.parse(uriValue), null, null)
+                }
+                if (deleted == 0 && !path.isNullOrBlank()) {
+                    if (path.startsWith("content://")) {
+                        deleted = contentResolver.delete(Uri.parse(path), null, null)
+                    } else {
+                        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                        } else {
+                            MediaStore.Files.getContentUri("external")
+                        }
+                        contentResolver.query(
+                            collection,
+                            arrayOf(MediaStore.Files.FileColumns._ID),
+                            "${MediaStore.Files.FileColumns.DATA} = ?",
+                            arrayOf(path),
+                            null,
+                        )?.use { cursor ->
+                            val idColumn = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
+                            if (idColumn >= 0) {
+                                while (cursor.moveToNext()) {
+                                    val itemUri = ContentUris.withAppendedId(
+                                        collection,
+                                        cursor.getLong(idColumn),
+                                    )
+                                    deleted += contentResolver.delete(itemUri, null, null)
+                                }
+                            }
+                        }
+                        if (deleted == 0) {
+                            val file = File(path)
+                            if (file.exists() && file.delete()) deleted = 1
+                        }
+                    }
+                }
+                if (deleted == 0) {
+                    runOnUiThread {
+                        result.error("NOT_FOUND", "Media file was not found", null)
+                    }
+                } else {
+                    if (!path.isNullOrBlank() && !path.startsWith("content://")) {
+                        MediaScannerConnection.scanFile(this, arrayOf(path), null, null)
+                    }
+                    runOnUiThread { result.success(true) }
+                }
+            } catch (security: SecurityException) {
+                runOnUiThread {
+                    result.error(
+                        "PERMISSION_REQUIRED",
+                        "Android requires permission to delete this media file",
+                        security.message,
+                    )
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    result.error("DELETE_FAILED", error.message ?: "Could not delete media file", null)
+                }
+            }
+        }
     }
 
     private fun queryVideos(result: MethodChannel.Result) {

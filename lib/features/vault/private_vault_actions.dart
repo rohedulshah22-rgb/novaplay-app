@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../ads/admob_service.dart';
+import '../media/data/media_repository.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/audio_extraction_dialog.dart';
 import 'private_vault_service.dart';
@@ -64,6 +65,40 @@ Future<void> showVideoActions(
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.redAccent,
+              ),
+              title: const Text('Delete File'),
+              subtitle: const Text(
+                'Permanently remove this file from the device',
+              ),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final confirmed = await _confirmDelete(context, file.name);
+                if (!confirmed || !context.mounted) return;
+                try {
+                  await const MediaRepository().deleteFile(
+                    path: file.path,
+                    contentUri: file.contentUri,
+                  );
+                  onChanged?.call();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('File deleted')),
+                    );
+                  }
+                } catch (error) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Could not delete file: $error')),
+                    );
+                  }
+                }
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(
                 Icons.audiotrack_rounded,
                 color: NovaColors.cyan,
               ),
@@ -84,6 +119,30 @@ Future<void> showVideoActions(
       ),
     ),
   );
+}
+
+Future<bool> _confirmDelete(BuildContext context, String name) async {
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Delete File?'),
+      content: const Text(
+        'Are you sure you want to delete this file from your device?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  return result == true;
 }
 
 Future<bool> _confirmMove(BuildContext context, String name) async {
