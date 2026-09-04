@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
 import '../media/domain/natural_sort.dart';
 import '../media/domain/video_file.dart';
+import '../media/presentation/media_providers.dart';
 import 'folder_view_preferences.dart';
 import '../media/presentation/video_card.dart';
 import '../vault/private_vault_actions.dart';
 import '../player/player_screen.dart';
 
-class FolderVideosScreen extends StatefulWidget {
+class FolderVideosScreen extends ConsumerStatefulWidget {
   const FolderVideosScreen({
     super.key,
     required this.folder,
@@ -20,10 +23,10 @@ class FolderVideosScreen extends StatefulWidget {
   final List<VideoFile> videos;
 
   @override
-  State<FolderVideosScreen> createState() => _FolderVideosScreenState();
+  ConsumerState<FolderVideosScreen> createState() => _FolderVideosScreenState();
 }
 
-class _FolderVideosScreenState extends State<FolderVideosScreen> {
+class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   bool isGrid = true;
   String sort = 'Name (A–Z)';
   String duration = 'All';
@@ -53,8 +56,13 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
     isGrid: isGrid,
   );
 
-  List<VideoFile> get visibleVideos {
-    final filtered = widget.videos.where((file) {
+  List<VideoFile> visibleVideos(MediaLibraryState library) {
+    final source = library.hasPermission
+        ? library.files
+              .where((file) => file.folderName == widget.folder.name)
+              .toList(growable: false)
+        : widget.videos;
+    final filtered = source.where((file) {
       final matchesDuration = switch (duration) {
         '< 10 min' =>
           file.duration == Duration.zero || file.duration.inMinutes < 10,
@@ -81,7 +89,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
   }
 
   void openPlayer(VideoFile file) {
-    final queue = visibleVideos;
+    final queue = visibleVideos(ref.read(mediaLibraryProvider));
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(file: file, queue: queue),
@@ -91,7 +99,7 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final videos = visibleVideos;
+    final videos = visibleVideos(ref.watch(mediaLibraryProvider));
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -221,7 +229,13 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                 file: videos[index],
                 compact: true,
                 onTap: () => openPlayer(videos[index]),
-                onMore: () => showVideoActions(context, videos[index]),
+                onMore: () => showVideoActions(
+                  context,
+                  videos[index],
+                  onChanged: () => ref
+                      .read(mediaLibraryProvider.notifier)
+                      .load(force: true),
+                ),
               ),
             )
           else
@@ -231,7 +245,13 @@ class _FolderVideosScreenState extends State<FolderVideosScreen> {
                 child: VideoCard(
                   file: file,
                   onTap: () => openPlayer(file),
-                  onMore: () => showVideoActions(context, file),
+                  onMore: () => showVideoActions(
+                    context,
+                    file,
+                    onChanged: () => ref
+                        .read(mediaLibraryProvider.notifier)
+                        .load(force: true),
+                  ),
                 ),
               ),
             ),

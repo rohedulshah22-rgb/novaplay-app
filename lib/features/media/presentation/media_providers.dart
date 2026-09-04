@@ -1,4 +1,5 @@
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/media_repository.dart';
@@ -134,7 +135,9 @@ class MediaLibraryNotifier extends Notifier<MediaLibraryState> {
   @override
   MediaLibraryState build() {
     repository = ref.read(mediaRepositoryProvider);
-    Future.microtask(() => load(requestPermission: true));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      load(requestPermission: true);
+    });
     return const MediaLibraryState();
   }
 
