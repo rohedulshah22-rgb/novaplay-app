@@ -11,6 +11,7 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.app.RecoverableSecurityException
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
@@ -41,8 +42,10 @@ class MainActivity : AudioServiceFragmentActivity() {
     private val playerChannelName = "com.novaplay/player"
     private val mediaChannelName = "com.novaplay/media"
     private val permissionRequestCode = 4012
+    private val deleteRequestCode = 4013
     private val executor = Executors.newSingleThreadExecutor()
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingDeleteResult: MethodChannel.Result? = null
     private var playerChannel: MethodChannel? = null
     private var pipEnabled = false
     private var pipPlaying = true
@@ -229,6 +232,20 @@ class MainActivity : AudioServiceFragmentActivity() {
             checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == deleteRequestCode) {
+            val pending = pendingDeleteResult
+            pendingDeleteResult = null
+            if (resultCode == RESULT_OK) {
+                pending?.success(true)
+            } else {
+                pending?.error("DELETE_CANCELLED", "Delete permission was not granted", null)
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == permissionRequestCode) {
@@ -253,43 +270,26 @@ class MainActivity : AudioServiceFragmentActivity() {
             return
         }
         executor.execute {
+            val targetUris = linkedSetOf<Uri>()
             try {
-                var deleted = 0
                 if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
-                    deleted = contentResolver.delete(Uri.parse(uriValue), null, null)
+                    targetUris += Uri.parse(uriValue)
                 }
-                if (deleted == 0 && !path.isNullOrBlank()) {
+                if (!path.isNullOrBlank()) {
                     if (path.startsWith("content://")) {
-                        deleted = contentResolver.delete(Uri.parse(path), null, null)
+                        targetUris += Uri.parse(path)
                     } else {
-                        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
-                        } else {
-                            MediaStore.Files.getContentUri("external")
-                        }
-                        contentResolver.query(
-                            collection,
-                            arrayOf(MediaStore.Files.FileColumns._ID),
-                            "${MediaStore.Files.FileColumns.DATA} = ?",
-                            arrayOf(path),
-                            null,
-                        )?.use { cursor ->
-                            val idColumn = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
-                            if (idColumn >= 0) {
-                                while (cursor.moveToNext()) {
-                                    val itemUri = ContentUris.withAppendedId(
-                                        collection,
-                                        cursor.getLong(idColumn),
-                                    )
-                                    deleted += contentResolver.delete(itemUri, null, null)
-                                }
-                            }
-                        }
-                        if (deleted == 0) {
-                            val file = File(path)
-                            if (file.exists() && file.delete()) deleted = 1
-                        }
+                        targetUris += resolveMediaUris(path)
                     }
+                }
+
+                var deleted = 0
+                for (uri in targetUris) {
+                    deleted += contentResolver.delete(uri, null, null)
+                }
+                if (deleted == 0 && !path.isNullOrBlank() && !path.startsWith("content://")) {
+                    val file = File(path)
+                    if (file.exists() && file.delete()) deleted = 1
                 }
                 if (deleted == 0) {
                     runOnUiThread {
@@ -300,6 +300,20 @@ class MainActivity : AudioServiceFragmentActivity() {
                         MediaScannerConnection.scanFile(this, arrayOf(path), null, null)
                     }
                     runOnUiThread { result.success(true) }
+                }
+            } catch (security: RecoverableSecurityException) {
+                runOnUiThread {
+                    requestDeleteAuthorization(
+                        targetUris = if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
+                            listOf(Uri.parse(uriValue))
+                        } else if (!path.isNullOrBlank() && path.startsWith("content://")) {
+                            listOf(Uri.parse(path))
+                        } else {
+                            resolveMediaUris(path.orEmpty())
+                        },
+                        security = security,
+                        result = result,
+                    )
                 }
             } catch (security: SecurityException) {
                 runOnUiThread {
@@ -314,6 +328,58 @@ class MainActivity : AudioServiceFragmentActivity() {
                     result.error("DELETE_FAILED", error.message ?: "Could not delete media file", null)
                 }
             }
+        }
+    }
+
+    private fun resolveMediaUris(path: String): List<Uri> {
+        if (path.isBlank()) return emptyList()
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Files.getContentUri("external")
+        }
+        val result = mutableListOf<Uri>()
+        contentResolver.query(
+            collection,
+            arrayOf(MediaStore.Files.FileColumns._ID),
+            "${MediaStore.Files.FileColumns.DATA} = ?",
+            arrayOf(path),
+            null,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            if (idColumn >= 0) {
+                while (cursor.moveToNext()) {
+                    result += ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
+                }
+            }
+        }
+        return result
+    }
+
+    private fun requestDeleteAuthorization(
+        targetUris: List<Uri>,
+        security: RecoverableSecurityException,
+        result: MethodChannel.Result,
+    ) {
+        if (targetUris.isEmpty()) {
+            result.error("PERMISSION_REQUIRED", "Android requires permission to delete this media file", security.message)
+            return
+        }
+        if (pendingDeleteResult != null) {
+            result.error("BUSY", "A delete authorization request is already in progress", null)
+            return
+        }
+        pendingDeleteResult = result
+        try {
+            val sender = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                MediaStore.createDeleteRequest(contentResolver, targetUris).intentSender
+            } else {
+                security.userAction.actionIntent.intentSender
+            }
+            startIntentSenderForResult(sender, deleteRequestCode, null, 0, 0, 0)
+        } catch (error: Exception) {
+            pendingDeleteResult = null
+            result.error("PERMISSION_REQUIRED", error.message ?: "Delete permission was not granted", null)
         }
     }
 

@@ -127,7 +127,7 @@ Future<bool> _confirmDelete(BuildContext context, String name) async {
     builder: (dialogContext) => AlertDialog(
       title: const Text('Delete File?'),
       content: const Text(
-        'Are you sure you want to delete this file from your device?',
+        'Are you sure you want to permanently delete this file?',
       ),
       actions: [
         TextButton(

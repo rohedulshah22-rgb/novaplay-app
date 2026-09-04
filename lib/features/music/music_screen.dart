@@ -230,7 +230,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
       builder: (dialogContext) => AlertDialog(
         title: const Text('Delete File?'),
         content: const Text(
-          'Are you sure you want to delete this file from your device?',
+          'Are you sure you want to permanently delete this file?',
         ),
         actions: [
           TextButton(

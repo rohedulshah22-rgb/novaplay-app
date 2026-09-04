@@ -10,9 +10,15 @@ import 'features/music/music_audio_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  MediaKit.ensureInitialized();
   runApp(const ProviderScope(child: NovaPlayApp()));
-  unawaited(_initializeServices());
+
+  // media_kit performs synchronous native setup. Defer it until Flutter has
+  // painted the shell so the dashboard is available instead of holding the
+  // launch screen during codec/asset initialization.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    MediaKit.ensureInitialized();
+    unawaited(_initializeServices());
+  });
 }
 
 Future<void> _initializeServices() async {
