@@ -322,10 +322,9 @@ class MediaRepository {
       if (await file.exists()) await file.delete();
       return;
     }
-    await _mediaChannel.invokeMethod<void>('deleteMedia', {
-      'path': path,
-      if (contentUri != null) 'uri': contentUri,
-    });
+    final arguments = <String, String>{'path': path};
+    if (contentUri != null) arguments['uri'] = contentUri;
+    await _mediaChannel.invokeMethod<void>('deleteMedia', arguments);
   }
 
   Future<void> clearPlaybackHistory() async {
