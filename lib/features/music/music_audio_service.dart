@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   NovaAudioHandler() {
@@ -150,6 +154,7 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 }
 
 NovaAudioHandler? audioHandler;
+final audioServiceReady = ValueNotifier<bool>(false);
 NovaAudioHandler get currentAudioHandler => audioHandler ??= NovaAudioHandler();
 
 Future<void> initNovaAudioService() async {
@@ -159,12 +164,17 @@ Future<void> initNovaAudioService() async {
       androidNotificationChannelId: 'com.novaplay.novaplay.audio',
       androidNotificationChannelName: 'NovaPlay Music',
       androidNotificationOngoing: true,
+      androidStopForegroundOnPause: false,
       androidShowNotificationBadge: true,
       androidNotificationIcon: 'mipmap/ic_launcher',
     ),
   );
   audioHandler = handler;
   await currentAudioHandler.configureSession();
+  if (Platform.isAndroid) {
+    await Permission.notification.request();
+  }
+  audioServiceReady.value = true;
 }
 
 final musicQuery = OnAudioQuery();

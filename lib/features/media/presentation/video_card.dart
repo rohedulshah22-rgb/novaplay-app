@@ -65,18 +65,24 @@ class VideoCard extends StatelessWidget {
     required this.onTap,
     this.compact = false,
     this.onMore,
+    this.onLongPress,
+    this.selected = false,
+    this.selectionMode = false,
   });
   final VideoFile file;
   final VoidCallback onTap;
   final bool compact;
   final VoidCallback? onMore;
+  final VoidCallback? onLongPress;
+  final bool selected;
+  final bool selectionMode;
 
   @override
   Widget build(BuildContext context) {
     if (compact) {
       return InkWell(
         onTap: onTap,
-        onLongPress: onMore,
+        onLongPress: onLongPress ?? onMore,
         borderRadius: BorderRadius.circular(18),
         child: SizedBox(
           width: 178,
@@ -86,6 +92,21 @@ class VideoCard extends StatelessWidget {
               Stack(
                 children: [
                   VideoArtwork(file: file, aspectRatio: 16 / 10),
+                  if (selectionMode)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: IgnorePointer(
+                        child: Checkbox(
+                          value: selected,
+                          onChanged: null,
+                          side: const BorderSide(color: Colors.white),
+                          fillColor: WidgetStatePropertyAll(
+                            selected ? NovaColors.cyan : Colors.black54,
+                          ),
+                        ),
+                      ),
+                    ),
                   Positioned(
                     left: 10,
                     bottom: 9,
@@ -149,7 +170,7 @@ class VideoCard extends StatelessWidget {
     }
 
     return GestureDetector(
-      onLongPress: onMore,
+      onLongPress: onLongPress ?? onMore,
       child: GlassCard(
         padding: const EdgeInsets.all(10),
         borderRadius: 18,
@@ -161,6 +182,21 @@ class VideoCard extends StatelessWidget {
               child: Stack(
                 children: [
                   VideoArtwork(file: file, aspectRatio: 16 / 10),
+                  if (selectionMode)
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: IgnorePointer(
+                        child: Checkbox(
+                          value: selected,
+                          onChanged: null,
+                          side: const BorderSide(color: Colors.white),
+                          fillColor: WidgetStatePropertyAll(
+                            selected ? NovaColors.cyan : Colors.black54,
+                          ),
+                        ),
+                      ),
+                    ),
                   Positioned(
                     left: 7,
                     bottom: 7,

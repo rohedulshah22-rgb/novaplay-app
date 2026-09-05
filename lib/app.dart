@@ -6,6 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'features/folders/folders_screen.dart';
 import 'features/home/home_screen.dart';
 import 'features/media/presentation/media_providers.dart';
+import 'features/music/music_audio_service.dart';
 import 'features/music/music_screen.dart';
 import 'features/playlists/playlists_screen.dart';
 import 'features/reels/reels_screen.dart';
@@ -21,14 +22,34 @@ class NovaPlayApp extends ConsumerStatefulWidget {
 
 class _NovaPlayAppState extends ConsumerState<NovaPlayApp>
     with WidgetsBindingObserver {
+  static const _playerChannel = MethodChannel('com.novaplay/player');
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _playerChannel.setMethodCallHandler(_handlePlayerChannel);
+  }
+
+  Future<void> _handlePlayerChannel(MethodCall call) async {
+    if (call.method != 'notificationTapped' || !mounted) return;
+    _openNowPlaying();
+  }
+
+  void _openNowPlaying() {
+    if (!mounted) return;
+    ref.read(appTabProvider.notifier).select(1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const MusicPlayerScreen()),
+      );
+    });
   }
 
   @override
   void dispose() {
+    _playerChannel.setMethodCallHandler(null);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -37,6 +58,9 @@ class _NovaPlayAppState extends ConsumerState<NovaPlayApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       ref.read(mediaLibraryProvider.notifier).onAppResumed();
+      if (audioServiceReady.value && currentAudioHandler.mediaItem.value != null) {
+        _openNowPlaying();
+      }
     }
   }
 

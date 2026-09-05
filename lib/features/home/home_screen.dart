@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../ads/admob_banner.dart';
 import '../../core/widgets/nova_widgets.dart';
+import '../media/data/media_repository.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
 import '../media/presentation/video_card.dart';
@@ -20,6 +21,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final searchController = TextEditingController();
   bool isGrid = true;
+  final Set<String> selectedVideoIds = <String>{};
 
   @override
   void dispose() {
@@ -44,6 +46,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         .toList();
     final files = library.filteredFiles;
 
+    final selectionMode = selectedVideoIds.isNotEmpty;
+
     return Scaffold(
       bottomNavigationBar: const NovaBannerAd(),
       body: SafeArea(
@@ -57,6 +61,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
+                    if (selectionMode)
+                      _VideoSelectionBar(
+                        count: selectedVideoIds.length,
+                        allSelected: files.isNotEmpty &&
+                            selectedVideoIds.length == files.length,
+                        onSelectAll: () => _selectAllVideos(files),
+                        onDelete: () => _deleteSelectedVideos(files),
+                        onClose: () => setState(selectedVideoIds.clear),
+                      ),
                     _Header(
                       onResume: resume.isEmpty
                           ? null
@@ -193,7 +206,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         itemBuilder: (_, index) => VideoCard(
                           file: files[index],
                           compact: true,
-                          onTap: () => openPlayer(files[index]),
+                          onTap: () => selectionMode
+                              ? _toggleVideoSelection(files[index])
+                              : openPlayer(files[index]),
+                          onLongPress: () => _startVideoSelection(files[index]),
+                          selected: selectedVideoIds.contains(files[index].id),
+                          selectionMode: selectionMode,
                           onMore: () => showVideoActions(
                             context,
                             files[index],
@@ -207,7 +225,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           padding: const EdgeInsets.only(bottom: 12),
                           child: VideoCard(
                             file: file,
-                            onTap: () => openPlayer(file),
+                            onTap: () => selectionMode
+                                ? _toggleVideoSelection(file)
+                                : openPlayer(file),
+                            onLongPress: () => _startVideoSelection(file),
+                            selected: selectedVideoIds.contains(file.id),
+                            selectionMode: selectionMode,
                             onMore: () => showVideoActions(
                               context,
                               file,
@@ -227,6 +250,77 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _scrollToLibrary() {}
+
+  void _startVideoSelection(VideoFile file) {
+    setState(() => selectedVideoIds.add(file.id));
+  }
+
+  void _toggleVideoSelection(VideoFile file) {
+    setState(() {
+      if (!selectedVideoIds.remove(file.id)) selectedVideoIds.add(file.id);
+    });
+  }
+
+  void _selectAllVideos(List<VideoFile> files) {
+    setState(() {
+      if (selectedVideoIds.length == files.length) {
+        selectedVideoIds.clear();
+      } else {
+        selectedVideoIds
+          ..clear()
+          ..addAll(files.map((file) => file.id));
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedVideos(List<VideoFile> files) async {
+    final selected = files
+        .where((file) => selectedVideoIds.contains(file.id))
+        .toList(growable: false);
+    if (selected.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${selected.length} items?'),
+        content: Text(
+          'Delete ${selected.length} items permanently from device?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      for (final file in selected) {
+        await const MediaRepository().deleteFile(
+          path: file.path,
+          contentUri: file.contentUri,
+        );
+      }
+      await ref.read(mediaLibraryProvider.notifier).load(force: true);
+      if (mounted) {
+        setState(selectedVideoIds.clear);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${selected.length} files deleted')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete selected files: $error')),
+        );
+      }
+    }
+  }
 
   void _showFilters() {
     final library = ref.read(mediaLibraryProvider);
@@ -325,6 +419,51 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
   }
+}
+
+class _VideoSelectionBar extends StatelessWidget {
+  const _VideoSelectionBar({
+    required this.count,
+    required this.allSelected,
+    required this.onSelectAll,
+    required this.onDelete,
+    required this.onClose,
+  });
+
+  final int count;
+  final bool allSelected;
+  final VoidCallback onSelectAll;
+  final VoidCallback onDelete;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) => GlassCard(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    child: Row(
+      children: [
+        IconButton(onPressed: onClose, icon: const Icon(Icons.close_rounded)),
+        Expanded(
+          child: Text(
+            '$count selected',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Select all',
+          onPressed: onSelectAll,
+          icon: Icon(
+            allSelected ? Icons.check_box : Icons.check_box_outline_blank,
+          ),
+        ),
+        IconButton(
+          tooltip: 'Delete selected',
+          onPressed: onDelete,
+          color: Colors.redAccent,
+          icon: const Icon(Icons.delete_outline_rounded),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Header extends StatelessWidget {

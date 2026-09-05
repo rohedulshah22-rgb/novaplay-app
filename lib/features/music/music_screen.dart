@@ -24,6 +24,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
   final _search = TextEditingController();
   late final TabController _tabs;
   List<SongModel> songs = const [];
+  final Set<int> selectedSongIds = <int>{};
   bool loading = true;
   String? error;
 
@@ -204,6 +205,68 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
     );
   }
 
+  void _startSongSelection(SongModel song) {
+    setState(() => selectedSongIds.add(song.id));
+  }
+
+  void _toggleSongSelection(SongModel song) {
+    setState(() {
+      if (!selectedSongIds.remove(song.id)) selectedSongIds.add(song.id);
+    });
+  }
+
+  void _selectAllSongs() {
+    setState(() {
+      if (selectedSongIds.length == visibleSongs.length) {
+        selectedSongIds.clear();
+      } else {
+        selectedSongIds
+          ..clear()
+          ..addAll(visibleSongs.map((song) => song.id));
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedSongs() async {
+    final selected = songs
+        .where((song) => selectedSongIds.contains(song.id))
+        .toList(growable: false);
+    if (selected.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${selected.length} items?'),
+        content: Text(
+          'Delete ${selected.length} items permanently from device?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      for (final song in selected) {
+        await const MediaRepository().deleteFile(path: song.data);
+      }
+      await _refresh();
+      if (mounted) {
+        setState(selectedSongIds.clear);
+        _message('${selected.length} files deleted');
+      }
+    } catch (error) {
+      if (mounted) _message('Could not delete selected files: $error');
+    }
+  }
+
   Future<void> _setOriginalTone(SongModel song, String type) async {
     try {
       final clip = AudioCutResult(
@@ -272,19 +335,44 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
 
   @override
   Widget build(BuildContext context) {
+    final selectionMode = selectedSongIds.isNotEmpty;
     return Scaffold(
       bottomNavigationBar: const NovaBannerAd(),
       appBar: AppBar(
-        title: const Text(
-          'Music',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        leading: selectionMode
+            ? IconButton(
+                onPressed: () => setState(selectedSongIds.clear),
+                icon: const Icon(Icons.close_rounded),
+              )
+            : null,
+        title: Text(
+          selectionMode ? '${selectedSongIds.length} selected' : 'Music',
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
-        actions: [
-          IconButton(
-            onPressed: _refresh,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
+        actions: selectionMode
+            ? [
+                IconButton(
+                  tooltip: 'Select all',
+                  onPressed: _selectAllSongs,
+                  icon: Icon(
+                    selectedSongIds.length == visibleSongs.length
+                        ? Icons.check_box
+                        : Icons.check_box_outline_blank,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Delete selected',
+                  onPressed: _deleteSelectedSongs,
+                  color: Colors.redAccent,
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ]
+            : [
+                IconButton(
+                  onPressed: _refresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(104),
           child: Column(
@@ -332,26 +420,46 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
               children: [
                 _SongList(
                   songs: visibleSongs,
-                  onTap: _play,
+                  onTap: selectionMode
+                      ? (song) async => _toggleSongSelection(song)
+                      : _play,
                   onMore: _openSongActions,
+                  onLongPress: _startSongSelection,
+                  onSelectionTap: _toggleSongSelection,
+                  selectedIds: selectedSongIds,
                 ),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicAlbum,
-                  onTap: _play,
+                  onTap: selectionMode
+                      ? (song) async => _toggleSongSelection(song)
+                      : _play,
                   onMore: _openSongActions,
+                  onLongPress: _startSongSelection,
+                  onSelectionTap: _toggleSongSelection,
+                  selectedIds: selectedSongIds,
                 ),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicArtist,
-                  onTap: _play,
+                  onTap: selectionMode
+                      ? (song) async => _toggleSongSelection(song)
+                      : _play,
                   onMore: _openSongActions,
+                  onLongPress: _startSongSelection,
+                  onSelectionTap: _toggleSongSelection,
+                  selectedIds: selectedSongIds,
                 ),
                 _GroupedSongs(
                   songs: visibleSongs,
                   groupBy: musicFolder,
-                  onTap: _play,
+                  onTap: selectionMode
+                      ? (song) async => _toggleSongSelection(song)
+                      : _play,
                   onMore: _openSongActions,
+                  onLongPress: _startSongSelection,
+                  onSelectionTap: _toggleSongSelection,
+                  selectedIds: selectedSongIds,
                 ),
               ],
             ),
@@ -364,10 +472,16 @@ class _SongList extends StatelessWidget {
     required this.songs,
     required this.onTap,
     required this.onMore,
+    required this.onLongPress,
+    required this.onSelectionTap,
+    required this.selectedIds,
   });
   final List<SongModel> songs;
   final Future<void> Function(SongModel) onTap;
   final Future<void> Function(SongModel) onMore;
+  final ValueChanged<SongModel> onLongPress;
+  final ValueChanged<SongModel> onSelectionTap;
+  final Set<int> selectedIds;
 
   @override
   Widget build(BuildContext context) {
@@ -379,7 +493,15 @@ class _SongList extends StatelessWidget {
       itemCount: songs.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, index) =>
-          _SongTile(song: songs[index], onTap: onTap, onMore: onMore),
+          _SongTile(
+            song: songs[index],
+            onTap: onTap,
+            onMore: onMore,
+            onLongPress: onLongPress,
+            onSelectionTap: onSelectionTap,
+            selected: selectedIds.contains(songs[index].id),
+            selectionMode: selectedIds.isNotEmpty,
+          ),
     );
   }
 }
@@ -390,11 +512,17 @@ class _GroupedSongs extends StatelessWidget {
     required this.groupBy,
     required this.onTap,
     required this.onMore,
+    required this.onLongPress,
+    required this.onSelectionTap,
+    required this.selectedIds,
   });
   final List<SongModel> songs;
   final String Function(SongModel) groupBy;
   final Future<void> Function(SongModel) onTap;
   final Future<void> Function(SongModel) onMore;
+  final ValueChanged<SongModel> onLongPress;
+  final ValueChanged<SongModel> onSelectionTap;
+  final Set<int> selectedIds;
 
   @override
   Widget build(BuildContext context) {
@@ -435,6 +563,10 @@ class _GroupedSongs extends StatelessWidget {
                             song: song,
                             onTap: onTap,
                             onMore: onMore,
+                            onLongPress: onLongPress,
+                            onSelectionTap: onSelectionTap,
+                            selected: selectedIds.contains(song.id),
+                            selectionMode: selectedIds.isNotEmpty,
                             compact: true,
                           ),
                         ),
@@ -453,11 +585,19 @@ class _SongTile extends StatelessWidget {
     required this.song,
     required this.onTap,
     required this.onMore,
+    required this.onLongPress,
+    required this.onSelectionTap,
+    required this.selected,
+    required this.selectionMode,
     this.compact = false,
   });
   final SongModel song;
   final Future<void> Function(SongModel) onTap;
   final Future<void> Function(SongModel) onMore;
+  final ValueChanged<SongModel> onLongPress;
+  final ValueChanged<SongModel> onSelectionTap;
+  final bool selected;
+  final bool selectionMode;
   final bool compact;
 
   @override
@@ -467,13 +607,23 @@ class _SongTile extends StatelessWidget {
         horizontal: compact ? 0 : 8,
         vertical: compact ? 0 : 2,
       ),
-      leading: QueryArtworkWidget(
-        id: song.id,
-        type: ArtworkType.AUDIO,
-        artworkWidth: compact ? 42 : 52,
-        artworkHeight: compact ? 42 : 52,
-        artworkFit: BoxFit.cover,
-        nullArtworkWidget: _Artwork(size: compact ? 42 : 52),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (selectionMode)
+            Checkbox(
+              value: selected,
+              onChanged: (_) => onSelectionTap(song),
+            ),
+          QueryArtworkWidget(
+            id: song.id,
+            type: ArtworkType.AUDIO,
+            artworkWidth: compact ? 42 : 52,
+            artworkHeight: compact ? 42 : 52,
+            artworkFit: BoxFit.cover,
+            nullArtworkWidget: _Artwork(size: compact ? 42 : 52),
+          ),
+        ],
       ),
       title: Text(
         musicTitle(song),
@@ -500,6 +650,7 @@ class _SongTile extends StatelessWidget {
         ],
       ),
       onTap: () => onTap(song),
+      onLongPress: () => onLongPress(song),
     );
   }
 }
@@ -509,8 +660,12 @@ class MusicMiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<MediaItem?>(
-      stream: currentAudioHandler.mediaItem,
+    return ValueListenableBuilder<bool>(
+      valueListenable: audioServiceReady,
+      builder: (context, ready, _) {
+        if (!ready) return const SizedBox.shrink();
+        return StreamBuilder<MediaItem?>(
+          stream: currentAudioHandler.mediaItem,
       builder: (context, snapshot) {
         final item = snapshot.data;
         if (item == null) return const SizedBox.shrink();
@@ -574,6 +729,8 @@ class MusicMiniPlayer extends StatelessWidget {
               ),
             ),
           ),
+        );
+          },
         );
       },
     );

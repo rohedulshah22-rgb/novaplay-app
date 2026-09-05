@@ -47,6 +47,7 @@ class MainActivity : AudioServiceFragmentActivity() {
     private var pendingPermissionResult: MethodChannel.Result? = null
     private var pendingDeleteResult: MethodChannel.Result? = null
     private var playerChannel: MethodChannel? = null
+    private var notificationTapPending = false
     private var pipEnabled = false
     private var pipPlaying = true
     private var pipWidth = 16
@@ -57,6 +58,16 @@ class MainActivity : AudioServiceFragmentActivity() {
                 ACTION_CLOSE -> finishAndRemoveTask()
                 ACTION_PLAY_PAUSE -> playerChannel?.invokeMethod("pipAction", ACTION_PLAY_PAUSE)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (playerChannel == null) {
+            notificationTapPending = true
+        } else {
+            playerChannel?.invokeMethod("notificationTapped", null)
         }
     }
 
@@ -73,6 +84,10 @@ class MainActivity : AudioServiceFragmentActivity() {
                 "setPipState" -> setPipState(call, result)
                 else -> result.notImplemented()
             }
+        }
+        if (notificationTapPending) {
+            notificationTapPending = false
+            playerChannel?.invokeMethod("notificationTapped", null)
         }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, mediaChannelName).setMethodCallHandler { call, result ->
             when (call.method) {
