@@ -127,7 +127,9 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
               onTap: () async {
                 Navigator.pop(sheetContext);
                 final favorite = await mediaPreferences.toggleFavorite(song.data);
-                if (mounted) _message(favorite ? 'Added to Favorites' : 'Removed from Favorites');
+                if (mounted) {
+                  _message(favorite ? 'Added to Favorites' : 'Removed from Favorites');
+                }
               },
             ),
             ListTile(
@@ -260,7 +262,9 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
 
   Future<void> _toggleSongFavorite(SongModel song) async {
     final favorite = await mediaPreferences.toggleFavorite(song.data);
-    if (mounted) _message(favorite ? 'Added to Favorites' : 'Removed from Favorites');
+    if (mounted) {
+      _message(favorite ? 'Added to Favorites' : 'Removed from Favorites');
+    }
   }
 
   void _startSongSelection(SongModel song) {

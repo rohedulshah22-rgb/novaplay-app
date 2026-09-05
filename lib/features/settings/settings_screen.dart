@@ -29,7 +29,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadFilters() async {
     final folders = await mediaPreferences.excludedFolders();
     final short = await mediaPreferences.hideShortClips();
-    if (mounted) setState(() { excludedFolders = folders; hideShortClips = short; });
+    if (mounted) {
+      setState(() {
+        excludedFolders = folders;
+        hideShortClips = short;
+      });
+    }
   }
 
   @override

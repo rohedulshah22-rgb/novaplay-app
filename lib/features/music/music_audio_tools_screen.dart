@@ -200,7 +200,9 @@ class _SyncedLyricsPanelState extends State<SyncedLyricsPanel> {
     if (lines.isEmpty && plainLyrics == null) {
       return const Text('No local lyrics found. Add an .lrc file next to the audio file.', style: TextStyle(color: NovaColors.muted));
     }
-    if (lines.isEmpty) return Text(plainLyrics!, style: const TextStyle(height: 1.6));
+    if (lines.isEmpty) {
+      return Text(plainLyrics!, style: const TextStyle(height: 1.6));
+    }
     return StreamBuilder<Duration>(
       stream: currentAudioHandler.player.positionStream,
       builder: (context, snapshot) {
