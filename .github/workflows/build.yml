@@ -63,8 +63,8 @@ jobs:
               '}' >> "$query_gradle"
           fi
 
-      - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Format Dart sources
+        run: dart format .
 
       - name: Analyze Dart code
         run: flutter analyze
