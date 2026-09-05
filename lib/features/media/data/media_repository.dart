@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../domain/playback_history.dart';
 import '../domain/video_file.dart';
+import 'media_preferences.dart';
 
 class PermissionSnapshot {
   const PermissionSnapshot({
@@ -129,7 +130,15 @@ class MediaRepository {
       );
     }
 
-    final result = merged.values.toList()
+    final excluded = await mediaPreferences.excludedFolders();
+    final hideShort = await mediaPreferences.hideShortClips();
+    final result = merged.values
+        .where(
+          (video) =>
+              !isExcludedFolder(video.path, excluded) &&
+              (!hideShort || video.duration.inSeconds >= 30),
+        )
+        .toList()
       ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
     return result.take(5000).toList(growable: false);
   }

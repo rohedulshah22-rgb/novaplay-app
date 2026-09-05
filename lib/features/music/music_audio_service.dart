@@ -1,6 +1,10 @@
 import 'dart:io';
 
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/services.dart';
+import '../media/data/media_preferences.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
@@ -10,6 +14,15 @@ import 'package:permission_handler/permission_handler.dart';
 class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   NovaAudioHandler() {
     _player.playbackEventStream.listen(_broadcastState);
+    _player.processingStateStream.listen((state) async {
+      if (state == ProcessingState.completed && _sleepAtTrackEnd) {
+        _sleepAtTrackEnd = false;
+        await _player.setVolume(.15);
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        await _player.pause();
+        await _player.setVolume(1);
+      }
+    });
     _player.sequenceStateStream.listen((sequence) {
       final item = sequence.currentSource?.tag;
       if (item is MediaItem) mediaItem.add(item);
@@ -23,6 +36,11 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   }
 
   final AudioPlayer _player = AudioPlayer();
+  final MethodChannel _effectsChannel = const MethodChannel('com.novaplay/player');
+  Timer? _sleepTimer;
+  bool _sleepAtTrackEnd = false;
+  List<double> _equalizerBands = List<double>.filled(5, 0);
+  bool _bassBoost = false;
   AudioPlayer get player => _player;
 
   Future<void> configureSession() async {
@@ -48,6 +66,8 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     if (items.isNotEmpty) {
       mediaItem.add(items[initialIndex.clamp(0, items.length - 1).toInt()]);
     }
+    final sessionId = await _player.androidAudioSessionIdStream.first;
+    if (sessionId != null) await _applyEffects(sessionId);
   }
 
   MediaItem _toMediaItem(SongModel song) => MediaItem(
@@ -150,7 +170,61 @@ class NovaAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     );
   }
 
-  Future<void> dispose() => _player.dispose();
+  Future<void> setEqualizerBands(List<double> bands) async {
+    _equalizerBands = bands;
+    await mediaPreferences.setEqualizerBands(bands);
+    final sessionId = await _player.androidAudioSessionIdStream.first;
+    if (sessionId != null) await _applyEffects(sessionId);
+  }
+
+  Future<void> setBassBoost(bool enabled) async {
+    _bassBoost = enabled;
+    await mediaPreferences.setBassBoost(enabled);
+    final sessionId = await _player.androidAudioSessionIdStream.first;
+    if (sessionId != null) await _applyEffects(sessionId);
+  }
+
+  Future<void> _applyEffects(int sessionId) async {
+    await _effectsChannel.invokeMethod<void>('setAudioEffects', {
+      'sessionId': sessionId,
+      'bands': _equalizerBands,
+      'bassBoost': _bassBoost,
+    });
+  }
+
+  Future<void> setSleepTimer(Duration? duration, {bool untilTrackEnd = false}) async {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepAtTrackEnd = untilTrackEnd;
+    if (duration == null && !untilTrackEnd) {
+      await _player.setVolume(1);
+      return;
+    }
+    if (untilTrackEnd) {
+      await _player.setVolume(1);
+      return;
+    }
+    final fade = duration! > const Duration(seconds: 20)
+        ? const Duration(seconds: 20)
+        : duration;
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      final remaining = duration - Duration(seconds: timer.tick);
+      if (remaining <= Duration.zero) {
+        timer.cancel();
+        await _player.pause();
+        await _player.setVolume(1);
+        return;
+      }
+      if (remaining <= fade) {
+        await _player.setVolume(remaining.inMilliseconds / fade.inMilliseconds);
+      }
+    });
+  }
+
+  Future<void> dispose() {
+    _sleepTimer?.cancel();
+    return _player.dispose();
+  }
 }
 
 NovaAudioHandler? audioHandler;
@@ -171,6 +245,8 @@ Future<void> initNovaAudioService() async {
   );
   audioHandler = handler;
   await currentAudioHandler.configureSession();
+  currentAudioHandler._equalizerBands = await mediaPreferences.equalizerBands();
+  currentAudioHandler._bassBoost = await mediaPreferences.bassBoost();
   if (Platform.isAndroid) {
     await Permission.notification.request();
   }

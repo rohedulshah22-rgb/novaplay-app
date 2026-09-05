@@ -20,6 +20,8 @@ import android.os.BatteryManager
 import android.provider.MediaStore
 import android.provider.Settings
 import android.media.MediaScannerConnection
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
 import android.util.Rational
 import android.util.Size
 import java.io.File
@@ -48,6 +50,8 @@ class MainActivity : AudioServiceFragmentActivity() {
     private var pendingDeleteResult: MethodChannel.Result? = null
     private var playerChannel: MethodChannel? = null
     private var notificationTapPending = false
+    private var equalizer: Equalizer? = null
+    private var bassBoost: BassBoost? = null
     private var pipEnabled = false
     private var pipPlaying = true
     private var pipWidth = 16
@@ -82,6 +86,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                     call.argument<Int>("height"),
                 )
                 "setPipState" -> setPipState(call, result)
+                "setAudioEffects" -> setAudioEffects(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -103,6 +108,34 @@ class MainActivity : AudioServiceFragmentActivity() {
                 "deleteMedia" -> deleteMedia(call, result)
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun setAudioEffects(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val sessionId = call.argument<Int>("sessionId") ?: 0
+            val bands = call.argument<List<Double>>("bands") ?: emptyList()
+            val boost = call.argument<Boolean>("bassBoost") == true
+            equalizer?.release()
+            bassBoost?.release()
+            equalizer = Equalizer(0, sessionId).apply {
+                enabled = true
+                val min = bandLevelRange[0].toInt()
+                val max = bandLevelRange[1].toInt()
+                bands.forEachIndexed { index, value ->
+                    if (index < numberOfBands) {
+                        val level = (value.coerceIn(-12.0, 12.0) * 100).toInt()
+                        setBandLevel(index.toShort(), level.coerceIn(min, max).toShort())
+                    }
+                }
+            }
+            bassBoost = BassBoost(0, sessionId).apply {
+                strength = if (boost) 700.toShort() else 0.toShort()
+                enabled = boost
+            }
+            result.success(true)
+        } catch (error: Exception) {
+            result.error("AUDIO_EFFECTS", error.message, null)
         }
     }
 

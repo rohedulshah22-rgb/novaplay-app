@@ -9,8 +9,10 @@ import '../../core/widgets/nova_widgets.dart';
 import '../ads/admob_banner.dart';
 import 'audio_cutter_screen.dart';
 import 'audio_cutter_service.dart';
+import '../media/data/media_preferences.dart';
 import '../media/data/media_repository.dart';
 import 'music_audio_service.dart';
+import 'music_audio_tools_screen.dart';
 
 class MusicScreen extends ConsumerStatefulWidget {
   const MusicScreen({super.key});
@@ -57,9 +59,16 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
         return;
       }
       final result = await musicQuery.querySongs();
+      final excluded = await mediaPreferences.excludedFolders();
+      final hideShort = await mediaPreferences.hideShortClips();
+      final filtered = result.where((song) {
+        final hiddenFolder = isExcludedFolder(song.data, excluded);
+        final short = hideShort && (song.duration ?? 0) < 30000;
+        return !hiddenFolder && !short;
+      }).toList(growable: false);
       if (!mounted) return;
       setState(() {
-        songs = result;
+        songs = filtered;
         loading = false;
       });
     } catch (_) {
@@ -112,6 +121,23 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
+            ListTile(
+              leading: const Icon(Icons.favorite_border_rounded, color: Colors.pinkAccent),
+              title: const Text('Add to Favorites'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final favorite = await mediaPreferences.toggleFavorite(song.data);
+                if (mounted) _message(favorite ? 'Added to Favorites' : 'Removed from Favorites');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.playlist_add_rounded),
+              title: const Text('Add to Playlist'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _addSongToPlaylist(song.data);
+              },
+            ),
             ListTile(
               leading: const Icon(
                 Icons.content_cut_rounded,
@@ -203,6 +229,38 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
         ),
       ),
     );
+  }
+
+  Future<void> _addSongToPlaylist(String id) async {
+    final playlists = await mediaPreferences.playlists();
+    if (!mounted) return;
+    if (playlists.isEmpty) {
+      _message('Create a playlist from the Playlists tab first');
+      return;
+    }
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Add to playlist'),
+        children: playlists.keys
+            .map(
+              (name) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(dialogContext, name),
+                child: Text(name),
+              ),
+            )
+            .toList(),
+      ),
+    );
+    if (selected != null) {
+      await mediaPreferences.addToPlaylist(selected, id);
+      if (mounted) _message('Added to $selected');
+    }
+  }
+
+  Future<void> _toggleSongFavorite(SongModel song) async {
+    final favorite = await mediaPreferences.toggleFavorite(song.data);
+    if (mounted) _message(favorite ? 'Added to Favorites' : 'Removed from Favorites');
   }
 
   void _startSongSelection(SongModel song) {
@@ -426,6 +484,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                   onMore: _openSongActions,
                   onLongPress: _startSongSelection,
                   onSelectionTap: _toggleSongSelection,
+                  onFavorite: _toggleSongFavorite,
                   selectedIds: selectedSongIds,
                 ),
                 _GroupedSongs(
@@ -437,6 +496,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                   onMore: _openSongActions,
                   onLongPress: _startSongSelection,
                   onSelectionTap: _toggleSongSelection,
+                  onFavorite: _toggleSongFavorite,
                   selectedIds: selectedSongIds,
                 ),
                 _GroupedSongs(
@@ -448,6 +508,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                   onMore: _openSongActions,
                   onLongPress: _startSongSelection,
                   onSelectionTap: _toggleSongSelection,
+                  onFavorite: _toggleSongFavorite,
                   selectedIds: selectedSongIds,
                 ),
                 _GroupedSongs(
@@ -459,6 +520,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                   onMore: _openSongActions,
                   onLongPress: _startSongSelection,
                   onSelectionTap: _toggleSongSelection,
+                  onFavorite: _toggleSongFavorite,
                   selectedIds: selectedSongIds,
                 ),
               ],
@@ -474,6 +536,7 @@ class _SongList extends StatelessWidget {
     required this.onMore,
     required this.onLongPress,
     required this.onSelectionTap,
+    required this.onFavorite,
     required this.selectedIds,
   });
   final List<SongModel> songs;
@@ -481,6 +544,7 @@ class _SongList extends StatelessWidget {
   final Future<void> Function(SongModel) onMore;
   final ValueChanged<SongModel> onLongPress;
   final ValueChanged<SongModel> onSelectionTap;
+  final ValueChanged<SongModel> onFavorite;
   final Set<int> selectedIds;
 
   @override
@@ -499,6 +563,7 @@ class _SongList extends StatelessWidget {
             onMore: onMore,
             onLongPress: onLongPress,
             onSelectionTap: onSelectionTap,
+            onFavorite: onFavorite,
             selected: selectedIds.contains(songs[index].id),
             selectionMode: selectedIds.isNotEmpty,
           ),
@@ -514,6 +579,7 @@ class _GroupedSongs extends StatelessWidget {
     required this.onMore,
     required this.onLongPress,
     required this.onSelectionTap,
+    required this.onFavorite,
     required this.selectedIds,
   });
   final List<SongModel> songs;
@@ -522,6 +588,7 @@ class _GroupedSongs extends StatelessWidget {
   final Future<void> Function(SongModel) onMore;
   final ValueChanged<SongModel> onLongPress;
   final ValueChanged<SongModel> onSelectionTap;
+  final ValueChanged<SongModel> onFavorite;
   final Set<int> selectedIds;
 
   @override
@@ -565,6 +632,7 @@ class _GroupedSongs extends StatelessWidget {
                             onMore: onMore,
                             onLongPress: onLongPress,
                             onSelectionTap: onSelectionTap,
+                            onFavorite: onFavorite,
                             selected: selectedIds.contains(song.id),
                             selectionMode: selectedIds.isNotEmpty,
                             compact: true,
@@ -587,6 +655,7 @@ class _SongTile extends StatelessWidget {
     required this.onMore,
     required this.onLongPress,
     required this.onSelectionTap,
+    required this.onFavorite,
     required this.selected,
     required this.selectionMode,
     this.compact = false,
@@ -596,6 +665,7 @@ class _SongTile extends StatelessWidget {
   final Future<void> Function(SongModel) onMore;
   final ValueChanged<SongModel> onLongPress;
   final ValueChanged<SongModel> onSelectionTap;
+  final ValueChanged<SongModel> onFavorite;
   final bool selected;
   final bool selectionMode;
   final bool compact;
@@ -642,6 +712,10 @@ class _SongTile extends StatelessWidget {
           Text(
             formatMusicDuration(song.duration),
             style: const TextStyle(color: NovaColors.muted, fontSize: 11),
+          ),
+          IconButton(
+            onPressed: () => onFavorite(song),
+            icon: const Icon(Icons.favorite_border_rounded, color: Colors.pinkAccent),
           ),
           IconButton(
             onPressed: () => onMore(song),
@@ -783,7 +857,39 @@ class MusicPlayerScreen extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: NovaColors.muted),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Equalizer and bass boost',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => MusicAudioToolsScreen(mediaItem: item),
+                          ),
+                        ),
+                        icon: const Icon(Icons.equalizer_rounded),
+                      ),
+                      IconButton(
+                        tooltip: 'Sleep timer',
+                        onPressed: () => showSleepTimerSheet(context),
+                        icon: const Icon(Icons.bedtime_outlined),
+                      ),
+                      IconButton(
+                        tooltip: 'Lyrics',
+                        onPressed: () => showModalBottomSheet<void>(
+                          context: context,
+                          showDragHandle: true,
+                          builder: (_) => Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                            child: SyncedLyricsPanel(mediaItem: item),
+                          ),
+                        ),
+                        icon: const Icon(Icons.lyrics_outlined),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   StreamBuilder<Duration>(
                     stream: currentAudioHandler.player.positionStream,
                     builder: (_, position) => StreamBuilder<Duration?>(

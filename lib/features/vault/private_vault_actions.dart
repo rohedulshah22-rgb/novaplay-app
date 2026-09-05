@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../ads/admob_service.dart';
+import '../media/data/media_preferences.dart';
 import '../media/data/media_repository.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/audio_extraction_dialog.dart';
@@ -32,6 +33,29 @@ Future<void> showVideoActions(
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.favorite_border_rounded, color: Colors.pinkAccent),
+              title: const Text('Add to Favorites'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final favorite = await mediaPreferences.toggleFavorite(file.id);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(favorite ? 'Added to Favorites' : 'Removed from Favorites')),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.playlist_add_rounded),
+              title: const Text('Add to Playlist'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                await _addVideoToPlaylist(context, file.id);
+              },
+            ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.lock_rounded, color: NovaColors.violet),
@@ -119,6 +143,39 @@ Future<void> showVideoActions(
       ),
     ),
   );
+}
+
+Future<void> _addVideoToPlaylist(BuildContext context, String id) async {
+  final playlists = await mediaPreferences.playlists();
+  if (!context.mounted) return;
+  if (playlists.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Create a playlist from the Playlists tab first')),
+    );
+    return;
+  }
+  final selected = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => SimpleDialog(
+      title: const Text('Add to playlist'),
+      children: playlists.keys
+          .map(
+            (name) => SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, name),
+              child: Text(name),
+            ),
+          )
+          .toList(),
+    ),
+  );
+  if (selected != null) {
+    await mediaPreferences.addToPlaylist(selected, id);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Added to $selected')),
+      );
+    }
+  }
 }
 
 Future<bool> _confirmDelete(BuildContext context, String name) async {

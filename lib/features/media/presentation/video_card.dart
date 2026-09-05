@@ -65,6 +65,7 @@ class VideoCard extends StatelessWidget {
     required this.onTap,
     this.compact = false,
     this.onMore,
+    this.onFavorite,
     this.onLongPress,
     this.selected = false,
     this.selectionMode = false,
@@ -73,6 +74,7 @@ class VideoCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool compact;
   final VoidCallback? onMore;
+  final VoidCallback? onFavorite;
   final VoidCallback? onLongPress;
   final bool selected;
   final bool selectionMode;
@@ -117,6 +119,17 @@ class VideoCard extends StatelessWidget {
                     bottom: 9,
                     child: _DurationPill(file: file),
                   ),
+                  if (onFavorite != null)
+                    Positioned(
+                      top: 5,
+                      left: 5,
+                      child: IconButton(
+                        onPressed: onFavorite,
+                        visualDensity: VisualDensity.compact,
+                        style: IconButton.styleFrom(backgroundColor: Colors.black54, foregroundColor: Colors.pinkAccent),
+                        icon: const Icon(Icons.favorite_border_rounded, size: 18),
+                      ),
+                    ),
                   if (onMore != null)
                     Positioned(
                       top: 5,
@@ -253,6 +266,12 @@ class VideoCard extends StatelessWidget {
                         color: NovaColors.muted,
                       ),
                       const Spacer(),
+                      if (onFavorite != null)
+                        IconButton(
+                          onPressed: onFavorite,
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.favorite_border_rounded, color: Colors.pinkAccent),
+                        ),
                       IconButton(
                         onPressed: onTap,
                         visualDensity: VisualDensity.compact,

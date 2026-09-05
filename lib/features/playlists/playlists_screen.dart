@@ -1,10 +1,29 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../media/data/media_preferences.dart';
 import '../../core/widgets/nova_widgets.dart';
 
-class PlaylistsScreen extends StatelessWidget {
+class PlaylistsScreen extends StatefulWidget {
   const PlaylistsScreen({super.key});
+
+  @override
+  State<PlaylistsScreen> createState() => _PlaylistsScreenState();
+}
+
+class _PlaylistsScreenState extends State<PlaylistsScreen> {
+  Map<String, List<String>> customPlaylists = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPlaylists();
+  }
+
+  Future<void> _loadPlaylists() async {
+    final value = await mediaPreferences.playlists();
+    if (mounted) setState(() => customPlaylists = value);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,6 +47,10 @@ class PlaylistsScreen extends StatelessWidget {
         NovaColors.green,
       ),
     ];
+    final custom = customPlaylists.keys.map(
+      (name) => (name, '${customPlaylists[name]!.length} saved items', Icons.playlist_play_rounded, NovaColors.cyan),
+    );
+    final allPlaylists = [...playlists, ...custom];
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -49,7 +72,7 @@ class PlaylistsScreen extends StatelessWidget {
             style: TextStyle(color: NovaColors.muted),
           ),
           const SizedBox(height: 20),
-          ...playlists.map(
+          ...allPlaylists.map(
             (playlist) => Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: GlassCard(
@@ -146,12 +169,16 @@ class PlaylistsScreen extends StatelessWidget {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(context);
               if (controller.text.trim().isNotEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Created ${controller.text.trim()}')),
-                );
+                await mediaPreferences.createPlaylist(controller.text.trim());
+                await _loadPlaylists();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Created ${controller.text.trim()}')),
+                  );
+                }
               }
             },
             child: const Text('Create'),

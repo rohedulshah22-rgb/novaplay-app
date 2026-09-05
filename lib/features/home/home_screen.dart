@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_theme.dart';
 import '../ads/admob_banner.dart';
 import '../../core/widgets/nova_widgets.dart';
+import '../media/data/media_preferences.dart';
 import '../media/data/media_repository.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
@@ -90,6 +91,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     const Text(
                       'Everything you downloaded. One calm place to watch.',
                       style: TextStyle(color: NovaColors.muted, fontSize: 14),
+                    ),
+                    const SizedBox(height: 16),
+                    GlassCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Icon(Icons.flash_on_rounded, color: NovaColors.cyan),
+                              SizedBox(width: 8),
+                              Text('Quick Tools', style: TextStyle(fontWeight: FontWeight.w900)),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text('Convert, cut, and make the most of your offline media.', style: TextStyle(color: NovaColors.muted, fontSize: 12)),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              ActionChip(
+                                avatar: Icon(Icons.audiotrack_rounded, size: 18, color: NovaColors.cyan),
+                                label: Text('Video to MP3'),
+                                onPressed: () => ref.read(appTabProvider.notifier).select(0),
+                              ),
+                              ActionChip(
+                                avatar: Icon(Icons.content_cut_rounded, size: 18, color: NovaColors.violet),
+                                label: Text('Audio Cutter / Ringtone'),
+                                onPressed: () => ref.read(appTabProvider.notifier).select(1),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 20),
                     TextField(
@@ -212,6 +247,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           onLongPress: () => _startVideoSelection(files[index]),
                           selected: selectedVideoIds.contains(files[index].id),
                           selectionMode: selectionMode,
+                          onFavorite: () => _toggleVideoFavorite(files[index].id),
                           onMore: () => showVideoActions(
                             context,
                             files[index],
@@ -231,6 +267,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             onLongPress: () => _startVideoSelection(file),
                             selected: selectedVideoIds.contains(file.id),
                             selectionMode: selectionMode,
+                            onFavorite: () => _toggleVideoFavorite(file.id),
                             onMore: () => showVideoActions(
                               context,
                               file,
@@ -250,6 +287,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _scrollToLibrary() {}
+
+  Future<void> _toggleVideoFavorite(String id) async {
+    final favorite = await mediaPreferences.toggleFavorite(id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(favorite ? 'Added to Favorites' : 'Removed from Favorites')),
+      );
+    }
+  }
 
   void _startVideoSelection(VideoFile file) {
     setState(() => selectedVideoIds.add(file.id));

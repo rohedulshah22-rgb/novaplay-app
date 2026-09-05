@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/nova_widgets.dart';
+import '../media/data/media_preferences.dart';
 import '../vault/private_vault_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -16,6 +17,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool backgroundAudio = true;
   bool keepAwake = true;
   bool haptics = true;
+  bool hideShortClips = false;
+  Set<String> excludedFolders = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFilters();
+  }
+
+  Future<void> _loadFilters() async {
+    final folders = await mediaPreferences.excludedFolders();
+    final short = await mediaPreferences.hideShortClips();
+    if (mounted) setState(() { excludedFolders = folders; hideShortClips = short; });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -98,9 +113,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (value) => setState(() => haptics = value),
                 ),
                 _ActionTile(
+                  icon: Icons.folder_off_outlined,
+                  title: 'Hide clutter folders',
+                  subtitle: excludedFolders.isEmpty ? 'No folders excluded' : excludedFolders.join(', '),
+                  onTap: _editExcludedFolders,
+                ),
+                _SettingTile(
+                  icon: Icons.filter_alt_outlined,
+                  title: 'Hide short clips',
+                  subtitle: 'Exclude videos and audio shorter than 30 seconds',
+                  value: hideShortClips,
+                  onChanged: (value) async {
+                    setState(() => hideShortClips = value);
+                    await mediaPreferences.setHideShortClips(value);
+                  },
+                ),
+                _ActionTile(
                   icon: Icons.folder_copy_outlined,
                   title: 'Manage indexed folders',
-                  onTap: () => _toast(context, 'Folder management coming next'),
+                  onTap: () => _toast(context, 'Use folder cards on the Videos tab to add folders'),
                 ),
                 _ActionTile(
                   icon: Icons.lock_outline_rounded,
@@ -161,6 +192,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _editExcludedFolders() async {
+    final controller = TextEditingController(text: excludedFolders.join(', '));
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hide folders'),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: 'WhatsApp, Cache, ShortClips'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (result == null) return;
+    final folders = result.split(',').map((value) => value.trim()).where((value) => value.isNotEmpty).toSet();
+    await mediaPreferences.setExcludedFolders(folders);
+    if (mounted) setState(() => excludedFolders = folders);
   }
 
   void _toast(BuildContext context, String text) =>
