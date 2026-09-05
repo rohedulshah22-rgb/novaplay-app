@@ -160,7 +160,7 @@ NovaAudioHandler get currentAudioHandler => audioHandler ??= NovaAudioHandler();
 Future<void> initNovaAudioService() async {
   final handler = await AudioService.init(
     builder: () => NovaAudioHandler(),
-    config: const AudioServiceConfig(
+    config: AudioServiceConfig(
       androidNotificationChannelId: 'com.novaplay.novaplay.audio',
       androidNotificationChannelName: 'NovaPlay Music',
       androidNotificationOngoing: true,
