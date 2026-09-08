@@ -73,7 +73,7 @@ jobs:
         run: flutter test
 
       - name: Build release APK
-        run: flutter build apk --release --no-shrink
+        run: flutter build apk --release
 
       - name: Verify release APK
         run: test -s build/app/outputs/flutter-apk/app-release.apk
@@ -87,7 +87,7 @@ jobs:
           retention-days: 30
 
       - name: Build release AAB
-        run: flutter build appbundle --release --no-shrink
+        run: flutter build appbundle --release
 
       - name: Verify release AAB
         run: test -s build/app/outputs/bundle/release/app-release.aab
