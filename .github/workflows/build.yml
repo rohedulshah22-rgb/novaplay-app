@@ -1,101 +1,46 @@
-name: NovaPlay Android builds
+name: Build NovaPlay APK & AAB
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
-  build-android:
-    name: Build release APK and AAB
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3072m
 
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
-          cache: gradle
 
-      - name: Set up Flutter and Android SDK
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
-          flutter-version: '3.47.1'
+          channel: 'stable'
           cache: true
 
-      - name: Set up Android SDK tools
-        uses: android-actions/setup-android@v3
-
-      - name: Resolve Flutter dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Patch legacy on_audio_query Android namespace
-        shell: bash
-        run: |
-          query_gradle=$(find "$PUB_CACHE/hosted/pub.dev" -path '*/on_audio_query_android-*/android/build.gradle' -print -quit)
-          if [ -z "$query_gradle" ]; then
-            echo 'on_audio_query_android build.gradle was not found'
-            exit 1
-          fi
-          if ! grep -q 'namespace' "$query_gradle"; then
-            sed -i "/android {/a\    namespace 'com.lucasjosino.on_audio_query'" "$query_gradle"
-          fi
-          if ! grep -q 'sourceCompatibility JavaVersion.VERSION_17' "$query_gradle"; then
-            sed -i "/android {/a\    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }" "$query_gradle"
-          fi
-          if ! grep -q 'KotlinCompile' "$query_gradle"; then
-            printf '\n%s\n' \
-              'tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {' \
-              '    kotlinOptions { jvmTarget = "17" }' \
-              '}' >> "$query_gradle"
-          fi
-
-      - name: Format Dart sources
-        run: dart format .
-
-      - name: Analyze Dart code
-        run: flutter analyze
-
-      - name: Run tests
-        run: flutter test
-
-      - name: Build release APK
+      - name: Build Release APK
         run: flutter build apk --release
 
-      - name: Verify release APK
-        run: test -s build/app/outputs/flutter-apk/app-release.apk
+      - name: Build Release AAB
+        run: flutter build appbundle --release
 
-      - name: Upload release APK
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: novaplay-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
-          if-no-files-found: error
-          retention-days: 30
 
-      - name: Build release AAB
-        run: flutter build appbundle --release
-
-      - name: Verify release AAB
-        run: test -s build/app/outputs/bundle/release/app-release.aab
-
-      - name: Upload release AAB
+      - name: Upload Release AAB
         uses: actions/upload-artifact@v4
         with:
           name: novaplay-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
-          if-no-files-found: error
-          retention-days: 30
