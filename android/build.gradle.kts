@@ -1,4 +1,4 @@
-import com.android.build.gradle.BaseExtension
+import com.android.build.api.dsl.CommonExtension
 
 allprojects {
     repositories {
@@ -24,9 +24,12 @@ subprojects {
 subprojects {
     afterEvaluate {
         if (project.hasProperty("android")) {
-            extensions.configure<BaseExtension> {
-                compileSdkVersion(34)
-                buildToolsVersion("34.0.0")
+            extensions.configure<CommonExtension<*, *, *, *, *, *>> {
+                if (namespace == null && project.group.toString() != "unspecified") {
+                    namespace = project.group.toString()
+                }
+                compileSdk = 34
+                buildToolsVersion = "34.0.0"
             }
         }
     }
