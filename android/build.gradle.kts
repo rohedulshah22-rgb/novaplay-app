@@ -1,5 +1,3 @@
-import com.android.build.api.dsl.CommonExtension
-
 allprojects {
     repositories {
         google()
@@ -12,26 +10,6 @@ val newBuildDir: Directory =
         .dir("../../build")
         .get()
 rootProject.layout.buildDirectory.value(newBuildDir)
-
-subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-    project.evaluationDependsOn(":app")
-}
-
-subprojects {
-    afterEvaluate {
-        if (project.hasProperty("android")) {
-            extensions.configure<CommonExtension<*, *, *, *, *, *>> {
-                if (namespace == null && project.group.toString() != "unspecified") {
-                    namespace = project.group.toString()
-                }
-                compileSdk = 34
-                buildToolsVersion = "34.0.0"
-            }
-        }
-    }
-}
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)

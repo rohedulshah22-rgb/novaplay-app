@@ -1,6 +1,6 @@
 plugins {
     id("com.android.application")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin plugins.
+    id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -10,7 +10,6 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -18,15 +17,15 @@ android {
     defaultConfig {
         applicationId = "com.novaplay.novaplay"
         minSdk = 24
-        multiDexEnabled = true
         targetSdk = 34
+        multiDexEnabled = true
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     buildTypes {
         release {
-            // Debug signing keeps the release artifacts directly installable for testing.
+            // Debug signing keeps release artifacts directly installable for testing.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -44,5 +43,4 @@ flutter {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
