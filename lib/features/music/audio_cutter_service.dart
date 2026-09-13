@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:ffmpeg_kit_audio_flutter/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_audio_flutter/return_code.dart';
@@ -29,35 +30,97 @@ class AudioCutterService {
     if (end <= start) {
       throw ArgumentError('End time must be after start time.');
     }
-    final directory = await getTemporaryDirectory();
-    final name = _safeName(
+
+    final documents = await getApplicationDocumentsDirectory();
+    final outputDirectory = Directory(
+      '${documents.path}/Music/NovaPlay_Trimmed',
+    );
+    await outputDirectory.create(recursive: true);
+
+    final safeName = _safeName(
       outputName ?? 'NovaPlay_Cut_${DateTime.now().millisecondsSinceEpoch}.mp3',
     );
-    final output = File('${directory.path}/$name');
-    if (await output.exists()) await output.delete();
+    final name = safeName.toLowerCase().endsWith('.mp3')
+        ? safeName
+        : '$safeName.mp3';
+    final output = File('${outputDirectory.path}/$name');
+    if (await output.exists()) {
+      await output.delete();
+    }
 
-    final command = [
+    final copyArguments = [
       '-y',
-      '-ss',
-      _seconds(start),
       '-i',
       _quote(inputPath),
-      '-t',
-      _seconds(end - start),
+      '-ss',
+      _seconds(start),
+      '-to',
+      _seconds(end),
+      '-vn',
+      '-c',
+      'copy',
+      _quote(output.path),
+    ].join(' ');
+    final copyResult = await _execute(copyArguments, output);
+    if (copyResult.success) {
+      return AudioCutResult(path: output.path, duration: end - start);
+    }
+
+    if (await output.exists()) {
+      await output.delete();
+    }
+
+    final reencodeArguments = [
+      '-y',
+      '-i',
+      _quote(inputPath),
+      '-ss',
+      _seconds(start),
+      '-to',
+      _seconds(end),
       '-vn',
       '-c:a',
       'libmp3lame',
-      '-q:a',
-      '2',
+      '-b:a',
+      '192k',
       _quote(output.path),
     ].join(' ');
-    final session = await FFmpegKit.execute(command);
-    final returnCode = await session.getReturnCode();
-    if (!ReturnCode.isSuccess(returnCode) || !await output.exists()) {
-      final logs = await session.getOutput();
-      throw StateError('Audio trimming failed${logs == null ? '' : ': $logs'}');
+    final reencodeResult = await _execute(reencodeArguments, output);
+    if (!reencodeResult.success) {
+      throw StateError(
+        'Audio trimming failed (copy return code: '
+        '${copyResult.returnCode}; re-encode return code: '
+        '${reencodeResult.returnCode}). ${reencodeResult.output}',
+      );
     }
+
     return AudioCutResult(path: output.path, duration: end - start);
+  }
+
+  Future<_FfmpegResult> _execute(String command, File output) async {
+    try {
+      final session = await FFmpegKit.execute(command);
+      final returnCode = await session.getReturnCode();
+      final logs = await session.getOutput() ?? '';
+      final success = ReturnCode.isSuccess(returnCode) && await output.exists();
+      if (!success) {
+        debugPrint(
+          'NovaPlay FFmpeg failed. returnCode=$returnCode output=$logs',
+        );
+      }
+      return _FfmpegResult(
+        success: success,
+        returnCode: returnCode.toString(),
+        output: logs.trim(),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('NovaPlay FFmpeg exception: $error\n$stackTrace');
+      return _FfmpegResult(
+        success: false,
+        returnCode: 'exception',
+        output: error.toString(),
+      );
+    }
   }
 
   Future<String> saveToMusic(AudioCutResult result, {String? title}) async {
@@ -100,7 +163,7 @@ class AudioCutterService {
 
   String _safeName(String value) {
     final withoutExtension = value.replaceFirst(
-      RegExp(r'\.mp3$', caseSensitive: false),
+      RegExp(r'\.(mp3|m4a|aac|wav)$', caseSensitive: false),
       '',
     );
     final cleaned = withoutExtension.replaceAll(
@@ -109,6 +172,18 @@ class AudioCutterService {
     );
     return cleaned.isEmpty ? 'NovaPlay_Audio' : cleaned;
   }
+}
+
+class _FfmpegResult {
+  const _FfmpegResult({
+    required this.success,
+    required this.returnCode,
+    required this.output,
+  });
+
+  final bool success;
+  final String returnCode;
+  final String output;
 }
 
 final audioCutterService = AudioCutterService.instance;

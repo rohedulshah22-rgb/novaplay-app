@@ -94,12 +94,61 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
       );
       if (mounted) {
         setState(() => _result = result);
-        _message('Trimmed clip is ready.');
+        await _showTrimSuccess(result);
       }
     } catch (error) {
       if (mounted) _message('Could not trim audio: $error');
     } finally {
       if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _showTrimSuccess(AudioCutResult result) async {
+    if (!mounted) return;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Trimmed audio is ready'),
+        content: const Text(
+          'What would you like to do with the trimmed audio clip?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'play'),
+            child: const Text('Play Trimmed Audio'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'library'),
+            child: const Text('View in Music Library'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'play') {
+      try {
+        await _previewPlayer.setFilePath(result.path);
+        await _previewPlayer.seek(Duration.zero);
+        await _previewPlayer.play();
+        if (mounted) setState(() => _previewing = true);
+      } catch (error) {
+        if (mounted) _message('Could not play trimmed audio: $error');
+      }
+      return;
+    }
+    if (action == 'library') {
+      try {
+        await audioCutterService.saveToMusic(
+          result,
+          title: '${musicTitle(widget.song)}_clip',
+        );
+        if (mounted) {
+          _message('Saved to Music/NovaPlay. Refreshing your library.');
+          Navigator.of(context).pop(true);
+        }
+      } catch (error) {
+        if (mounted) _message('Could not add audio to Music Library: $error');
+      }
     }
   }
 

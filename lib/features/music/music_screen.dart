@@ -146,13 +146,14 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                 color: NovaColors.cyan,
               ),
               title: const Text('Cut / Trim Audio'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(sheetContext);
-                Navigator.of(context).push(
+                final saved = await Navigator.of(context).push<bool>(
                   MaterialPageRoute(
                     builder: (_) => AudioCutterScreen(song: song),
                   ),
                 );
+                if (saved == true && mounted) await _refresh();
               },
             ),
             ListTile(
