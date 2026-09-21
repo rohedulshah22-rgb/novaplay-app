@@ -130,7 +130,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                 }
             }
             bassBoost = BassBoost(0, sessionId).apply {
-                strength = if (boost) 700.toShort() else 0.toShort()
+                setStrength(if (boost) 700.toShort() else 0.toShort())
                 enabled = boost
             }
             result.success(true)
