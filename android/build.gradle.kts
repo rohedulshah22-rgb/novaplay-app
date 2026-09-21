@@ -15,15 +15,13 @@ allprojects {
 // its plugin module. Modern Flutter no longer injects that extension there,
 // so provide the minimal value it needs without affecting other plugins.
 subprojects {
-    if (project.name == "android_file_picker") {
-        beforeEvaluate { target ->
-            if (target.extensions.findByName("flutter") == null) {
-                target.extensions.add(
-                    "flutter",
-                    FlutterPluginCompatibilityExtension(),
-                )
-            }
-        }
+    if (project.name == "android_file_picker" &&
+        extensions.findByName("flutter") == null
+    ) {
+        extensions.add(
+            "flutter",
+            FlutterPluginCompatibilityExtension(),
+        )
     }
 }
 
