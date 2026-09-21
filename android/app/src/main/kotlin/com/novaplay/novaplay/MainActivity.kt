@@ -618,7 +618,12 @@ class MainActivity : AudioServiceFragmentActivity() {
 
     private fun publishAudio(call: MethodCall, result: MethodChannel.Result) {
         val tempPath = call.argument<String>("tempPath")
-        val displayName = call.argument<String>("displayName") ?: "NovaPlay Audio.mp3"
+        val displayName = call.argument<String>("displayName") ?: "NovaPlay Audio.m4a"
+        val mimeType = if (displayName.endsWith(".m4a", ignoreCase = true)) {
+            "audio/mp4"
+        } else {
+            "audio/mpeg"
+        }
         if (tempPath.isNullOrBlank()) {
             result.error("INVALID_ARGUMENT", "tempPath is required", null)
             return
@@ -633,7 +638,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                 val publishedUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val values = ContentValues().apply {
                         put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
-                        put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg")
+                        put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
                         put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/NovaPlay")
                         put(MediaStore.Audio.Media.IS_PENDING, 1)
                     }
@@ -659,7 +664,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                     directory.mkdirs()
                     val output = File(directory, displayName)
                     source.inputStream().use { input -> output.outputStream().use { out -> input.copyTo(out) } }
-                    MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf("audio/mpeg"), null)
+                    MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf(mimeType), null)
                     output.absolutePath
                 }
                 source.delete()

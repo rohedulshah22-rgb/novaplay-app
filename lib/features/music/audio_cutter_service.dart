@@ -31,66 +31,76 @@ class AudioCutterService {
       throw ArgumentError('End time must be after start time.');
     }
 
+    final input = File(inputPath);
+    if (!await input.exists()) {
+      throw StateError('The source audio file no longer exists.');
+    }
+
     final documents = await getApplicationDocumentsDirectory();
     final outputDirectory = Directory(
       '${documents.path}/Music/NovaPlay_Trimmed',
     );
     await outputDirectory.create(recursive: true);
 
-    final safeName = _safeName(
-      outputName ?? 'NovaPlay_Cut_${DateTime.now().millisecondsSinceEpoch}.mp3',
-    );
-    final name = safeName.toLowerCase().endsWith('.mp3')
+    final requestedName = outputName ??
+        'NovaPlay_Cut_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final safeName = _safeName(requestedName);
+    final name = safeName.toLowerCase().endsWith('.m4a')
         ? safeName
-        : '$safeName.mp3';
+        : '$safeName.m4a';
     final output = File('${outputDirectory.path}/$name');
-    if (await output.exists()) {
-      await output.delete();
-    }
+    if (await output.exists()) await output.delete();
 
-    final copyArguments = [
+    final startSeconds = _seconds(start);
+    final endSeconds = _seconds(end);
+
+    // Re-encoding is the reliable path for frame-accurate cuts and avoids
+    // stream-copy failures on files with unusual timestamps/codecs.
+    final reencodeArguments = [
       '-y',
       '-i',
-      _quote(inputPath),
+      _quote(input.path),
       '-ss',
-      _seconds(start),
+      startSeconds,
       '-to',
-      _seconds(end),
+      endSeconds,
+      '-vn',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-movflags',
+      '+faststart',
+      _quote(output.path),
+    ].join(' ');
+    final reencodeResult = await _execute(reencodeArguments, output);
+    if (reencodeResult.success) {
+      return AudioCutResult(path: output.path, duration: end - start);
+    }
+
+    if (await output.exists()) await output.delete();
+
+    // Keep stream copy as a fallback for formats/codecs that the bundled
+    // encoder cannot handle, while still returning a useful diagnostic.
+    final copyArguments = [
+      '-y',
+      '-ss',
+      startSeconds,
+      '-i',
+      _quote(input.path),
+      '-to',
+      _seconds(end - start),
       '-vn',
       '-c',
       'copy',
       _quote(output.path),
     ].join(' ');
     final copyResult = await _execute(copyArguments, output);
-    if (copyResult.success) {
-      return AudioCutResult(path: output.path, duration: end - start);
-    }
-
-    if (await output.exists()) {
-      await output.delete();
-    }
-
-    final reencodeArguments = [
-      '-y',
-      '-i',
-      _quote(inputPath),
-      '-ss',
-      _seconds(start),
-      '-to',
-      _seconds(end),
-      '-vn',
-      '-c:a',
-      'libmp3lame',
-      '-b:a',
-      '192k',
-      _quote(output.path),
-    ].join(' ');
-    final reencodeResult = await _execute(reencodeArguments, output);
-    if (!reencodeResult.success) {
+    if (!copyResult.success) {
       throw StateError(
-        'Audio trimming failed (copy return code: '
-        '${copyResult.returnCode}; re-encode return code: '
-        '${reencodeResult.returnCode}). ${reencodeResult.output}',
+        'Audio trimming failed (re-encode ${reencodeResult.returnCode}; '
+        'stream copy ${copyResult.returnCode}). '
+        '${copyResult.output.isEmpty ? reencodeResult.output : copyResult.output}',
       );
     }
 
@@ -99,10 +109,13 @@ class AudioCutterService {
 
   Future<_FfmpegResult> _execute(String command, File output) async {
     try {
+      debugPrint('NovaPlay FFmpeg command: $command');
       final session = await FFmpegKit.execute(command);
       final returnCode = await session.getReturnCode();
       final logs = await session.getOutput() ?? '';
-      final success = ReturnCode.isSuccess(returnCode) && await output.exists();
+      final exists = await output.exists();
+      final hasContent = exists && await output.length() > 0;
+      final success = ReturnCode.isSuccess(returnCode) && hasContent;
       if (!success) {
         debugPrint(
           'NovaPlay FFmpeg failed. returnCode=$returnCode output=$logs',
@@ -124,7 +137,7 @@ class AudioCutterService {
   }
 
   Future<String> saveToMusic(AudioCutResult result, {String? title}) async {
-    final displayName = '${_safeName(title ?? 'NovaPlay Audio')}.mp3';
+    final displayName = '${_safeName(title ?? 'NovaPlay Audio')}.m4a';
     final published = await _mediaChannel.invokeMethod<String>('publishAudio', {
       'tempPath': result.path,
       'displayName': displayName,
@@ -151,7 +164,7 @@ class AudioCutterService {
     return SharePlus.instance.share(
       ShareParams(
         title: title ?? 'Share NovaPlay audio clip',
-        files: [XFile(result.path, mimeType: 'audio/mpeg')],
+        files: [XFile(result.path, mimeType: 'audio/mp4')],
       ),
     );
   }

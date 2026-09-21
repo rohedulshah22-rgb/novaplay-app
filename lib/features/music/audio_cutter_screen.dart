@@ -90,7 +90,7 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
         inputPath: widget.song.data,
         start: _start,
         end: _end,
-        outputName: '${musicTitle(widget.song)}_clip.mp3',
+        outputName: '${musicTitle(widget.song)}_clip.m4a',
       );
       if (mounted) {
         setState(() => _result = result);

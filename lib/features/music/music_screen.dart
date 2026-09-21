@@ -14,6 +14,9 @@ import '../media/data/media_repository.dart';
 import 'music_audio_service.dart';
 import 'music_audio_tools_screen.dart';
 
+String _audioContentUri(SongModel song) =>
+    'content://media/external/audio/media/${song.id}';
+
 class MusicScreen extends ConsumerStatefulWidget {
   const MusicScreen({super.key});
 
@@ -194,7 +197,17 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                 final confirmed = await _confirmDeleteSong(song);
                 if (!confirmed || !mounted) return;
                 try {
-                  await const MediaRepository().deleteFile(path: song.data);
+                  await const MediaRepository().deleteFile(
+                    path: song.data,
+                    contentUri: _audioContentUri(song),
+                  );
+                  if (mounted) {
+                    setState(() {
+                      songs = songs
+                          .where((item) => item.id != song.id)
+                          .toList(growable: false);
+                    });
+                  }
                   await _refresh();
                   if (mounted) _message('File deleted');
                 } catch (error) {
@@ -318,7 +331,18 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
     if (confirmed != true || !mounted) return;
     try {
       for (final song in selected) {
-        await const MediaRepository().deleteFile(path: song.data);
+        await const MediaRepository().deleteFile(
+          path: song.data,
+          contentUri: _audioContentUri(song),
+        );
+      }
+      if (mounted) {
+        final deletedIds = selected.map((song) => song.id).toSet();
+        setState(() {
+          songs = songs
+              .where((song) => !deletedIds.contains(song.id))
+              .toList(growable: false);
+        });
       }
       await _refresh();
       if (mounted) {

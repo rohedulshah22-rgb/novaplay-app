@@ -38,9 +38,11 @@ jobs:
         with:
           name: novaplay-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
 
       - name: Upload Release AAB
         uses: actions/upload-artifact@v4
         with:
           name: novaplay-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
