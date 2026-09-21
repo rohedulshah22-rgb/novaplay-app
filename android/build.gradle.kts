@@ -1,6 +1,7 @@
 import com.android.build.gradle.LibraryExtension
 import org.gradle.kotlin.dsl.configure
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 allprojects {
     repositories {
@@ -23,8 +24,10 @@ subprojects {
                     targetCompatibility = JavaVersion.VERSION_17
                 }
             }
-            tasks.withType<KotlinCompile>().configureEach {
-                kotlinOptions.jvmTarget = "17"
+            tasks.withType<KotlinCompilationTask<*>>().configureEach {
+                compilerOptions {
+                    jvmTarget.set(JvmTarget.JVM_17)
+                }
             }
         }
     }
