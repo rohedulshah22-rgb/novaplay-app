@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -194,8 +194,8 @@ class MediaLibraryNotifier extends Notifier<MediaLibraryState> {
   Future<void> openPermissionSettings() => repository.openAppSettings();
 
   Future<void> pickCustomDirectory() async {
-    final directory = await FilePicker.getDirectoryPath(
-      dialogTitle: 'Choose a video folder',
+    final directory = await getDirectoryPath(
+      confirmButtonText: 'Choose video folder',
     );
     if (directory == null || directory.isEmpty) return;
     state = state.copyWith(isScanning: true, clearError: true);

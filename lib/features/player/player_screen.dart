@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:dart_cast/dart_cast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1974,13 +1974,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       trackLanguageLabel(title: track.title, language: track.language);
 
   Future<void> _pickSubtitle() async {
-    final file = await FilePicker.pickFile(
-      type: FileType.custom,
-      allowedExtensions: ['srt', 'vtt', 'ass', 'ssa'],
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(
+          label: 'Subtitles',
+          extensions: ['srt', 'vtt', 'ass', 'ssa'],
+        ),
+      ],
     );
     if (file?.path == null) return;
     final externalTrack = SubtitleTrack.uri(
-      file!.path!,
+      file!.path,
       title: file.name,
       language: 'und',
     );
