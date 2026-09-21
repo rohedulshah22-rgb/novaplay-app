@@ -1,5 +1,6 @@
 import com.android.build.gradle.LibraryExtension
 import org.gradle.kotlin.dsl.configure
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 allprojects {
     repositories {
@@ -16,6 +17,14 @@ subprojects {
         plugins.withId("com.android.library") {
             extensions.configure<LibraryExtension> {
                 namespace = "com.lucasjosino.on_audio_query"
+                compileSdk = 37
+                compileOptions {
+                    sourceCompatibility = JavaVersion.VERSION_17
+                    targetCompatibility = JavaVersion.VERSION_17
+                }
+            }
+            tasks.withType<KotlinCompile>().configureEach {
+                kotlinOptions.jvmTarget = "17"
             }
         }
     }

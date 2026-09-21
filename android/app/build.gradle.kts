@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.novaplay.novaplay"
-    compileSdk = 34
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
