@@ -29,10 +29,10 @@ jobs:
         run: flutter pub get
 
       - name: Build Release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Build Release AAB
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --target-platform android-arm64
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
