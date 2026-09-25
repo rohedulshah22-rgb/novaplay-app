@@ -29,10 +29,48 @@ jobs:
         run: flutter pub get
 
       - name: Build Release APK
-        run: flutter build apk --release --target-platform android-arm64
+        run: |
+          set +e
+          flutter build apk --release
+          flutter_status=$?
+          set -e
+          apk_path="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$apk_path" ]; then
+            echo "Flutter did not expose the APK at $apk_path (status $flutter_status)."
+            recovered_apk="$(find android/app/build build -type f -name 'app-release.apk' -print -quit 2>/dev/null || true)"
+            if [ -n "$recovered_apk" ]; then
+              mkdir -p "$(dirname "$apk_path")"
+              cp "$recovered_apk" "$apk_path"
+              echo "Recovered APK from $recovered_apk"
+            else
+              echo "No release APK was produced. Android output files:"
+              find android/app/build build -type f \( -name '*.apk' -o -name '*.aab' \) -print 2>/dev/null || true
+              exit "${flutter_status:-1}"
+            fi
+          fi
+          test -s "$apk_path"
 
       - name: Build Release AAB
-        run: flutter build appbundle --release --target-platform android-arm64
+        run: |
+          set +e
+          flutter build appbundle --release
+          bundle_status=$?
+          set -e
+          bundle_path="build/app/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$bundle_path" ]; then
+            echo "Flutter did not expose the AAB at $bundle_path (status $bundle_status)."
+            recovered_bundle="$(find android/app/build build -type f -name 'app-release.aab' -print -quit 2>/dev/null || true)"
+            if [ -n "$recovered_bundle" ]; then
+              mkdir -p "$(dirname "$bundle_path")"
+              cp "$recovered_bundle" "$bundle_path"
+              echo "Recovered AAB from $recovered_bundle"
+            else
+              echo "No release AAB was produced. Android output files:"
+              find android/app/build build -type f \( -name '*.apk' -o -name '*.aab' \) -print 2>/dev/null || true
+              exit "${bundle_status:-1}"
+            fi
+          fi
+          test -s "$bundle_path"
 
       - name: Upload Release APK
         uses: actions/upload-artifact@v4
