@@ -313,7 +313,7 @@ class MainActivity : AudioServiceFragmentActivity() {
     private fun deleteMedia(call: MethodCall, result: MethodChannel.Result) {
         val path = call.argument<String>("path")
         val uriValue = call.argument<String>("uri")
-        val requestConsent = call.arguments["requestConsent"].toString() == "true"
+        val requestConsent = call.argument<String>("requestConsent") == "true"
         if (path.isNullOrBlank() && uriValue.isNullOrBlank()) {
             result.error("INVALID_ARGUMENT", "path or uri is required", null)
             return
@@ -422,7 +422,7 @@ class MainActivity : AudioServiceFragmentActivity() {
         result: MethodChannel.Result,
     ) {
         if (targetUris.isEmpty()) {
-            result.error("PERMISSION_REQUIRED", "Android requires permission to delete this media file", security.message)
+            result.error("PERMISSION_REQUIRED", "Android requires permission to delete this media file", security?.message)
             return
         }
         if (pendingDeleteResult != null) {
