@@ -18,7 +18,7 @@ subprojects {
         plugins.withId("com.android.library") {
             extensions.configure<LibraryExtension> {
                 namespace = "com.lucasjosino.on_audio_query"
-                compileSdk = 34
+                compileSdk = 36
                 compileOptions {
                     sourceCompatibility = JavaVersion.VERSION_17
                     targetCompatibility = JavaVersion.VERSION_17
