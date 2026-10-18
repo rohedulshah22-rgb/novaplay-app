@@ -313,6 +313,7 @@ class MainActivity : AudioServiceFragmentActivity() {
     private fun deleteMedia(call: MethodCall, result: MethodChannel.Result) {
         val path = call.argument<String>("path")
         val uriValue = call.argument<String>("uri")
+        val requestConsent = call.arguments["requestConsent"].toString() == "true"
         if (path.isNullOrBlank() && uriValue.isNullOrBlank()) {
             result.error("INVALID_ARGUMENT", "path or uri is required", null)
             return
@@ -329,6 +330,17 @@ class MainActivity : AudioServiceFragmentActivity() {
                     } else {
                         targetUris += resolveMediaUris(path)
                     }
+                }
+
+                if (requestConsent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetUris.isNotEmpty()) {
+                    runOnUiThread {
+                        requestDeleteAuthorization(
+                            targetUris = targetUris.toList(),
+                            security = null,
+                            result = result,
+                        )
+                    }
+                    return@execute
                 }
 
                 var deleted = 0
@@ -406,7 +418,7 @@ class MainActivity : AudioServiceFragmentActivity() {
 
     private fun requestDeleteAuthorization(
         targetUris: List<Uri>,
-        security: RecoverableSecurityException,
+        security: RecoverableSecurityException?,
         result: MethodChannel.Result,
     ) {
         if (targetUris.isEmpty()) {
@@ -422,7 +434,12 @@ class MainActivity : AudioServiceFragmentActivity() {
             val sender = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 MediaStore.createDeleteRequest(contentResolver, targetUris).intentSender
             } else {
-                security.userAction.actionIntent.intentSender
+                security?.userAction?.actionIntent?.intentSender
+            }
+            if (sender == null) {
+                pendingDeleteResult = null
+                result.error("PERMISSION_REQUIRED", "Android requires permission to delete this media file", null)
+                return
             }
             startIntentSenderForResult(sender, deleteRequestCode, null, 0, 0, 0)
         } catch (error: Exception) {

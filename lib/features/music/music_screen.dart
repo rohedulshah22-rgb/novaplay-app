@@ -200,6 +200,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                   await const MediaRepository().deleteFile(
                     path: song.data,
                     contentUri: _audioContentUri(song),
+                    requestConsent: true,
                   );
                   if (mounted) {
                     setState(() {
@@ -334,6 +335,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
         await const MediaRepository().deleteFile(
           path: song.data,
           contentUri: _audioContentUri(song),
+          requestConsent: true,
         );
       }
       if (mounted) {

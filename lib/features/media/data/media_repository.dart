@@ -325,7 +325,11 @@ class MediaRepository {
     );
   }
 
-  Future<void> deleteFile({required String path, String? contentUri}) async {
+  Future<void> deleteFile({
+    required String path,
+    String? contentUri,
+    bool requestConsent = false,
+  }) async {
     if (!Platform.isAndroid) {
       final file = File(path);
       if (await file.exists()) await file.delete();
@@ -333,6 +337,7 @@ class MediaRepository {
     }
     final arguments = <String, String>{'path': path};
     if (contentUri != null) arguments['uri'] = contentUri;
+    if (requestConsent) arguments['requestConsent'] = 'true';
     await _mediaChannel.invokeMethod<void>('deleteMedia', arguments);
   }
 
