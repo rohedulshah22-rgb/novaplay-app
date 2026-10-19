@@ -43,7 +43,15 @@ class AudioExtractionService {
       (session) async {
         final returnCode = await session.getReturnCode();
         if (!ReturnCode.isSuccess(returnCode)) {
-          if (!complete.isCompleted) complete.complete(null);
+          final output = await session.getOutput() ?? '';
+          if (!complete.isCompleted) {
+            complete.completeError(
+              StateError(
+                'FFmpeg audio extraction failed (return code $returnCode). '
+                '${output.trim()}',
+              ),
+            );
+          }
           return;
         }
         try {
@@ -52,8 +60,8 @@ class AudioExtractionService {
             {'tempPath': outputPath, 'displayName': '$safeName.mp3'},
           );
           if (!complete.isCompleted) complete.complete(published);
-        } on PlatformException {
-          if (!complete.isCompleted) complete.complete(null);
+        } on PlatformException catch (error) {
+          if (!complete.isCompleted) complete.completeError(error);
         }
       },
       null,

@@ -11,6 +11,7 @@ import 'audio_cutter_screen.dart';
 import 'audio_cutter_service.dart';
 import '../media/data/media_preferences.dart';
 import '../media/data/media_repository.dart';
+import '../media/presentation/media_providers.dart';
 import 'music_audio_service.dart';
 import 'music_audio_tools_screen.dart';
 
@@ -32,6 +33,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
   final Set<int> selectedSongIds = <int>{};
   bool loading = true;
   bool hideCallRecordings = true;
+  int _lastMusicRefreshToken = 0;
   String? error;
 
   @override
@@ -432,6 +434,13 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
 
   @override
   Widget build(BuildContext context) {
+    final musicRefreshToken = ref.watch(musicRefreshProvider);
+    if (musicRefreshToken != _lastMusicRefreshToken) {
+      _lastMusicRefreshToken = musicRefreshToken;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refresh();
+      });
+    }
     final selectionMode = selectedSongIds.isNotEmpty;
     return Scaffold(
       bottomNavigationBar: const NovaBannerAd(),

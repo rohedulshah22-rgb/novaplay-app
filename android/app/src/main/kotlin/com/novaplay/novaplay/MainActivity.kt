@@ -319,6 +319,23 @@ class MainActivity : AudioServiceFragmentActivity() {
             return
         }
         executor.execute {
+            if (!path.isNullOrBlank() && !path.startsWith("content://")) {
+                val file = File(path)
+                if (!file.exists()) {
+                    runOnUiThread { result.success(true) }
+                    return@execute
+                }
+                try {
+                    file.delete()
+                    if (!file.exists()) {
+                        MediaScannerConnection.scanFile(this, arrayOf(path), null, null)
+                        runOnUiThread { result.success(true) }
+                        return@execute
+                    }
+                } catch (_: SecurityException) {
+                    // Continue with the MediaStore consent flow below.
+                }
+            }
             val targetUris = linkedSetOf<Uri>()
             try {
                 if (requestConsent) {

@@ -9,6 +9,7 @@ import '../media/data/media_repository.dart';
 import '../media/domain/video_file.dart';
 import '../media/presentation/media_providers.dart';
 import '../media/presentation/video_card.dart';
+import '../media/presentation/audio_extraction_dialog.dart';
 import '../vault/private_vault_actions.dart';
 import '../folders/folder_videos_screen.dart';
 import '../player/player_screen.dart';
@@ -34,6 +35,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => PlayerScreen(file: file)));
+  }
+
+  Future<void> _openVideoToMp3() async {
+    final repository = ref.read(mediaRepositoryProvider);
+    final videosFuture = () async {
+      final permission = await repository.permissionState();
+      if (!permission.granted) await repository.requestVideoAccess();
+      return repository.scan(force: true, includeHidden: true);
+    }();
+    final selected = await showModalBottomSheet<VideoFile>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => FutureBuilder<List<VideoFile>>(
+        future: videosFuture,
+        builder: (context, snapshot) {
+          final videos = snapshot.data ?? const <VideoFile>[];
+          return SizedBox(
+            height: MediaQuery.sizeOf(context).height * .72,
+            child: snapshot.connectionState != ConnectionState.done
+                ? const Center(child: CircularProgressIndicator())
+                : videos.isEmpty
+                ? const Center(
+                    child: Text('No videos available for audio extraction.'),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    itemCount: videos.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, index) {
+                      final video = videos[index];
+                      return ListTile(
+                        leading: const Icon(Icons.video_file_outlined),
+                        title: Text(
+                          video.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(video.folderName),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () => Navigator.pop(sheetContext, video),
+                      );
+                    },
+                  ),
+          );
+        },
+      ),
+    );
+    if (!mounted || selected == null) return;
+    await showAudioExtractionDialog(context, selected);
+    if (mounted) {
+      ref.read(musicRefreshProvider.notifier).state++;
+      await ref.read(mediaLibraryProvider.notifier).load(force: true);
+    }
   }
 
   @override
@@ -114,7 +170,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ActionChip(
                                 avatar: Icon(Icons.audiotrack_rounded, size: 18, color: NovaColors.cyan),
                                 label: Text('Video to MP3'),
-                                onPressed: () => ref.read(appTabProvider.notifier).select(0),
+                                onPressed: () {
+                                  _openVideoToMp3();
+                                },
                               ),
                               ActionChip(
                                 avatar: Icon(Icons.content_cut_rounded, size: 18, color: NovaColors.violet),

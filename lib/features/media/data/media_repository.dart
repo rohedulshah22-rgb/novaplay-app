@@ -106,7 +106,10 @@ class MediaRepository {
     await _mediaChannel.invokeMethod<void>('openAppSettings');
   }
 
-  Future<List<VideoFile>> scan({bool force = false}) async {
+  Future<List<VideoFile>> scan({
+    bool force = false,
+    bool includeHidden = false,
+  }) async {
     final permission = await permissionState();
     if (!permission.granted) return const [];
 
@@ -135,8 +138,9 @@ class MediaRepository {
     final result = merged.values
         .where(
           (video) =>
-              !isExcludedFolder(video.path, excluded) &&
-              (!hideShort || video.duration.inSeconds >= 30),
+              includeHidden ||
+              (!isExcludedFolder(video.path, excluded) &&
+                  (!hideShort || video.duration.inSeconds >= 30)),
         )
         .toList()
       ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
@@ -334,6 +338,16 @@ class MediaRepository {
       final file = File(path);
       if (await file.exists()) await file.delete();
       return;
+    }
+    if (!path.startsWith('content://')) {
+      final file = File(path);
+      try {
+        if (!await file.exists()) return;
+        await file.delete();
+        if (!await file.exists()) return;
+      } on FileSystemException {
+        // Shared-storage files may require the native MediaStore consent flow.
+      }
     }
     final arguments = <String, String>{'path': path};
     if (contentUri != null) arguments['uri'] = contentUri;

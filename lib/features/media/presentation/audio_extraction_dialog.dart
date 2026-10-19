@@ -44,10 +44,10 @@ Future<void> showAudioExtractionDialog(
               progress = 1.0;
             });
           }
-        } catch (_) {
+        } catch (caught) {
           if (dialogContext.mounted) {
             setDialogState(() {
-              error = 'Audio extraction failed. Playback was not affected.';
+              error = 'Audio extraction failed: $caught';
               complete = false;
             });
           }
