@@ -31,6 +31,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
   List<SongModel> songs = const [];
   final Set<int> selectedSongIds = <int>{};
   bool loading = true;
+  bool hideCallRecordings = true;
   String? error;
 
   @override
@@ -64,14 +65,21 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
       final result = await musicQuery.querySongs();
       final excluded = await mediaPreferences.excludedFolders();
       final hideShort = await mediaPreferences.hideShortClips();
+      final hideCalls = await mediaPreferences.hideCallRecordings();
       final filtered = result.where((song) {
         final hiddenFolder = isExcludedFolder(song.data, excluded);
         final short = hideShort && (song.duration ?? 0) < 30000;
-        return !hiddenFolder && !short;
+        final folder = musicFolder(song).toLowerCase();
+        final callRecording = folder.contains('call recording') ||
+            folder.contains('recording');
+        final hiddenCall = hideCalls &&
+            (callRecording || (song.duration ?? 0) < 15000);
+        return !hiddenFolder && !short && !hiddenCall;
       }).toList(growable: false);
       if (!mounted) return;
       setState(() {
         songs = filtered;
+        hideCallRecordings = hideCalls;
         loading = false;
       });
     } catch (_) {
@@ -463,7 +471,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                 ),
               ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(104),
+          preferredSize: const Size.fromHeight(144),
           child: Column(
             children: [
               Padding(
@@ -483,6 +491,22 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                             },
                             icon: const Icon(Icons.clear_rounded),
                           ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilterChip(
+                    avatar: const Icon(Icons.call_end_outlined, size: 17),
+                    label: const Text('Hide Call Recordings'),
+                    selected: hideCallRecordings,
+                    onSelected: (value) async {
+                      setState(() => hideCallRecordings = value);
+                      await mediaPreferences.setHideCallRecordings(value);
+                      await _refresh();
+                    },
                   ),
                 ),
               ),
@@ -744,10 +768,11 @@ class _SongTile extends StatelessWidget {
             formatMusicDuration(song.duration),
             style: const TextStyle(color: NovaColors.muted, fontSize: 11),
           ),
-          IconButton(
-            onPressed: () => onFavorite(song),
-            icon: const Icon(Icons.favorite_border_rounded, color: Colors.pinkAccent),
-          ),
+          if (!compact)
+            IconButton(
+              onPressed: () => onFavorite(song),
+              icon: const Icon(Icons.favorite_border_rounded, color: Colors.pinkAccent),
+            ),
           IconButton(
             onPressed: () => onMore(song),
             icon: const Icon(Icons.more_vert_rounded),

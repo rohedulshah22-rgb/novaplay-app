@@ -20,9 +20,11 @@ class AudioCutterScreen extends StatefulWidget {
 class _AudioCutterScreenState extends State<AudioCutterScreen> {
   final _previewPlayer = AudioPlayer();
   StreamSubscription<Duration>? _positionSubscription;
+  StreamSubscription<PlayerState>? _playerStateSubscription;
   Duration _duration = Duration.zero;
   Duration _start = Duration.zero;
   Duration _end = const Duration(seconds: 30);
+  Duration _previewPosition = Duration.zero;
   bool _loading = true;
   bool _working = false;
   bool _previewing = false;
@@ -31,12 +33,14 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(currentAudioHandler.pause());
     _preparePreview();
   }
 
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _playerStateSubscription?.cancel();
     _previewPlayer.dispose();
     super.dispose();
   }
@@ -57,11 +61,23 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
       });
       _positionSubscription = _previewPlayer.positionStream.listen((position) {
         if (!mounted) return;
+        setState(() => _previewPosition = position);
         if (_previewing && position >= _end) {
-          _previewPlayer.pause();
-          _previewPlayer.seek(_start);
-          setState(() => _previewing = false);
+          unawaited(_previewPlayer.pause());
+          unawaited(_previewPlayer.seek(_start));
+          setState(() {
+            _previewing = false;
+            _previewPosition = _start;
+          });
         }
+      });
+      _playerStateSubscription = _previewPlayer.playerStateStream.listen((state) {
+        if (!mounted || state.processingState != ProcessingState.completed) return;
+        setState(() {
+          _previewing = false;
+          _previewPosition = _start;
+        });
+        unawaited(_previewPlayer.seek(_start));
       });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -74,6 +90,7 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
       if (mounted) setState(() => _previewing = false);
       return;
     }
+    await currentAudioHandler.pause();
     await _previewPlayer.seek(_start);
     await _previewPlayer.play();
     if (mounted) setState(() => _previewing = true);
@@ -93,7 +110,10 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
         outputName: '${musicTitle(widget.song)}_clip.m4a',
       );
       if (mounted) {
-        setState(() => _result = result);
+        setState(() {
+          _result = result;
+          _working = false;
+        });
         await _showTrimSuccess(result);
       }
     } catch (error) {
@@ -137,18 +157,57 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
       return;
     }
     if (action == 'library') {
-      try {
-        await audioCutterService.saveToMusic(
-          result,
-          title: '${musicTitle(widget.song)}_clip',
-        );
-        if (mounted) {
-          _message('Saved to Music/NovaPlay. Refreshing your library.');
-          Navigator.of(context).pop(true);
-        }
-      } catch (error) {
-        if (mounted) _message('Could not add audio to Music Library: $error');
+      await _saveToMusicWithRename(result);
+    }
+  }
+
+  Future<void> _saveResultToMusic() async {
+    if (_result == null) {
+      await _trim();
+    }
+    if (mounted && _result != null) {
+      await _saveToMusicWithRename(_result!);
+    }
+  }
+
+  Future<void> _saveToMusicWithRename(AudioCutResult result) async {
+    final controller = TextEditingController(
+      text: '${musicTitle(widget.song)}_clip',
+    );
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Rename audio clip'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(suffixText: '.m4a'),
+          onSubmitted: (value) => Navigator.pop(dialogContext, value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmedName = name?.trim();
+    if (!mounted || trimmedName == null || trimmedName.isEmpty) return;
+    try {
+      await audioCutterService.saveToMusic(result, title: trimmedName);
+      if (mounted) {
+        _message('Saved to Music/NovaPlay');
+        Navigator.of(context).pop(true);
       }
+    } catch (error) {
+      if (mounted) _message('Could not save audio: $error');
     }
   }
 
@@ -254,6 +313,12 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
                       painter: _WaveformPainter(
                         start: startMs / maxMs,
                         end: endMs / maxMs,
+                        playhead: _previewing
+                            ? (_previewPosition.inMilliseconds /
+                                      _duration.inMilliseconds)
+                                  .clamp(0.0, 1.0)
+                                  .toDouble()
+                            : null,
                       ),
                     ),
                   ),
@@ -320,12 +385,7 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
                     _ActionTile(
                       icon: Icons.save_alt_rounded,
                       title: 'Save to Music/NovaPlay',
-                      onTap: () => _runAction('Save', (result) async {
-                        await audioCutterService.saveToMusic(
-                          result,
-                          title: '${musicTitle(widget.song)}_clip',
-                        );
-                      }),
+                      onTap: _saveResultToMusic,
                     ),
                     _ActionTile(
                       icon: Icons.phone_android_rounded,
@@ -461,9 +521,14 @@ class _Artwork extends StatelessWidget {
 }
 
 class _WaveformPainter extends CustomPainter {
-  const _WaveformPainter({required this.start, required this.end});
+  const _WaveformPainter({
+    required this.start,
+    required this.end,
+    this.playhead,
+  });
   final double start;
   final double end;
+  final double? playhead;
   @override
   void paint(Canvas canvas, Size size) {
     final bars = Paint()
@@ -498,9 +563,21 @@ class _WaveformPainter extends CustomPainter {
       Offset(size.width * end, size.height),
       marker,
     );
+    if (playhead != null) {
+      final playheadPaint = Paint()
+        ..color = Colors.white
+        ..strokeWidth = 3;
+      canvas.drawLine(
+        Offset(size.width * playhead!, 0),
+        Offset(size.width * playhead!, size.height),
+        playheadPaint,
+      );
+    }
   }
 
   @override
   bool shouldRepaint(covariant _WaveformPainter oldDelegate) =>
-      oldDelegate.start != start || oldDelegate.end != end;
+      oldDelegate.start != start ||
+      oldDelegate.end != end ||
+      oldDelegate.playhead != playhead;
 }

@@ -7,6 +7,7 @@ class MediaPreferences {
   static const _playlistsKey = 'novaplay.media.playlists.v1';
   static const _excludedFoldersKey = 'novaplay.media.excluded-folders.v1';
   static const _hideShortClipsKey = 'novaplay.media.hide-short-clips.v1';
+  static const _hideCallRecordingsKey = 'novaplay.media.hide-call-recordings.v1';
   static const _equalizerKey = 'novaplay.audio.equalizer.v1';
   static const _bassBoostKey = 'novaplay.audio.bass-boost.v1';
 
@@ -86,6 +87,16 @@ class MediaPreferences {
   Future<void> setHideShortClips(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hideShortClipsKey, value);
+  }
+
+  Future<bool> hideCallRecordings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_hideCallRecordingsKey) ?? true;
+  }
+
+  Future<void> setHideCallRecordings(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_hideCallRecordingsKey, value);
   }
 
   Future<List<double>> equalizerBands() async {

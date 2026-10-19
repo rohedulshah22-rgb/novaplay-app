@@ -321,14 +321,18 @@ class MainActivity : AudioServiceFragmentActivity() {
         executor.execute {
             val targetUris = linkedSetOf<Uri>()
             try {
-                if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
-                    targetUris += Uri.parse(uriValue)
-                }
-                if (!path.isNullOrBlank()) {
-                    if (path.startsWith("content://")) {
-                        targetUris += Uri.parse(path)
-                    } else {
-                        targetUris += resolveMediaUris(path)
+                if (requestConsent) {
+                    targetUris += resolveAudioUris(path, uriValue)
+                } else {
+                    if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
+                        targetUris += Uri.parse(uriValue)
+                    }
+                    if (!path.isNullOrBlank()) {
+                        if (path.startsWith("content://")) {
+                            targetUris += Uri.parse(path)
+                        } else {
+                            targetUris += resolveMediaUris(path)
+                        }
                     }
                 }
 
@@ -347,6 +351,11 @@ class MainActivity : AudioServiceFragmentActivity() {
                 for (uri in targetUris) {
                     deleted += contentResolver.delete(uri, null, null)
                 }
+                if (deleted == 0 && requestConsent && !uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
+                    runCatching {
+                        deleted += contentResolver.delete(Uri.parse(uriValue), null, null)
+                    }
+                }
                 if (deleted == 0 && !path.isNullOrBlank() && !path.startsWith("content://")) {
                     val file = File(path)
                     if (file.exists() && file.delete()) deleted = 1
@@ -364,7 +373,9 @@ class MainActivity : AudioServiceFragmentActivity() {
             } catch (security: RecoverableSecurityException) {
                 runOnUiThread {
                     requestDeleteAuthorization(
-                        targetUris = if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
+                        targetUris = if (requestConsent) {
+                            resolveAudioUris(path, uriValue)
+                        } else if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
                             listOf(Uri.parse(uriValue))
                         } else if (!path.isNullOrBlank() && path.startsWith("content://")) {
                             listOf(Uri.parse(path))
@@ -407,6 +418,44 @@ class MainActivity : AudioServiceFragmentActivity() {
             null,
         )?.use { cursor ->
             val idColumn = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
+            if (idColumn >= 0) {
+                while (cursor.moveToNext()) {
+                    result += ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
+                }
+            }
+        }
+        return result
+    }
+
+    private fun resolveAudioUris(path: String?, uriValue: String?): List<Uri> {
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        }
+        val requestedId = uriValue?.let { value ->
+            value.substringAfterLast('/').toLongOrNull()
+        }
+        val filePath = path?.takeUnless { it.startsWith("content://") }
+        val selection = when {
+            requestedId != null -> "${MediaStore.Audio.Media._ID} = ?"
+            !filePath.isNullOrBlank() -> "${MediaStore.Audio.Media.DATA} = ?"
+            else -> return emptyList()
+        }
+        val args = if (requestedId != null) {
+            arrayOf(requestedId.toString())
+        } else {
+            arrayOf(filePath!!)
+        }
+        val result = mutableListOf<Uri>()
+        contentResolver.query(
+            collection,
+            arrayOf(MediaStore.Audio.Media._ID),
+            selection,
+            args,
+            null,
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndex(MediaStore.Audio.Media._ID)
             if (idColumn >= 0) {
                 while (cursor.moveToNext()) {
                     result += ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
@@ -653,36 +702,33 @@ class MainActivity : AudioServiceFragmentActivity() {
                     return@execute
                 }
                 val publishedUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
-                        put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
-                        put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/NovaPlay")
-                        put(MediaStore.Audio.Media.IS_PENDING, 1)
-                    }
-                    val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
-                        ?: throw IllegalStateException("Unable to create Music/NovaPlay media entry")
                     try {
-                        contentResolver.openOutputStream(uri)?.use { output ->
-                            source.inputStream().use { input -> input.copyTo(output) }
-                        } ?: throw IllegalStateException("Unable to open Music/NovaPlay output")
-                        contentResolver.update(uri, ContentValues().apply {
-                            put(MediaStore.Audio.Media.IS_PENDING, 0)
-                        }, null, null)
-                        uri.toString()
-                    } catch (error: Exception) {
-                        contentResolver.delete(uri, null, null)
-                        throw error
+                        val values = ContentValues().apply {
+                            put(MediaStore.Audio.Media.DISPLAY_NAME, displayName)
+                            put(MediaStore.Audio.Media.MIME_TYPE, mimeType)
+                            put(MediaStore.Audio.Media.RELATIVE_PATH, Environment.DIRECTORY_MUSIC + "/NovaPlay/")
+                            put(MediaStore.Audio.Media.IS_PENDING, 1)
+                        }
+                        val uri = contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
+                            ?: throw IllegalStateException("Unable to create Music/NovaPlay media entry")
+                        try {
+                            contentResolver.openOutputStream(uri, "w")?.use { output ->
+                                source.inputStream().use { input -> input.copyTo(output) }
+                                output.flush()
+                            } ?: throw IllegalStateException("Unable to open Music/NovaPlay output")
+                            contentResolver.update(uri, ContentValues().apply {
+                                put(MediaStore.Audio.Media.IS_PENDING, 0)
+                            }, null, null)
+                            uri.toString()
+                        } catch (error: Exception) {
+                            contentResolver.delete(uri, null, null)
+                            throw error
+                        }
+                    } catch (_: Exception) {
+                        publishAudioFallback(source, displayName, mimeType)
                     }
                 } else {
-                    val directory = File(
-                        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
-                        "NovaPlay",
-                    )
-                    directory.mkdirs()
-                    val output = File(directory, displayName)
-                    source.inputStream().use { input -> output.outputStream().use { out -> input.copyTo(out) } }
-                    MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf(mimeType), null)
-                    output.absolutePath
+                    publishAudioFallback(source, displayName, mimeType)
                 }
                 source.delete()
                 runOnUiThread { result.success(publishedUri) }
@@ -690,6 +736,28 @@ class MainActivity : AudioServiceFragmentActivity() {
                 runOnUiThread { result.error("AUDIO_PUBLISH_FAILED", error.message, null) }
             }
         }
+    }
+
+    private fun publishAudioFallback(source: File, displayName: String, mimeType: String): String {
+        val directory = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
+            "NovaPlay",
+        )
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw IllegalStateException("Unable to create Music/NovaPlay directory")
+        }
+        val output = File(directory, displayName)
+        source.inputStream().use { input ->
+            output.outputStream().use { out ->
+                input.copyTo(out)
+                out.flush()
+            }
+        }
+        if (!output.exists() || output.length() == 0L) {
+            throw IllegalStateException("Music/NovaPlay output is empty")
+        }
+        MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf(mimeType), null)
+        return output.absolutePath
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {

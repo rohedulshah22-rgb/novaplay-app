@@ -18,6 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool keepAwake = true;
   bool haptics = true;
   bool hideShortClips = false;
+  bool hideCallRecordings = true;
   Set<String> excludedFolders = <String>{};
 
   @override
@@ -29,10 +30,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadFilters() async {
     final folders = await mediaPreferences.excludedFolders();
     final short = await mediaPreferences.hideShortClips();
+    final calls = await mediaPreferences.hideCallRecordings();
     if (mounted) {
       setState(() {
         excludedFolders = folders;
         hideShortClips = short;
+        hideCallRecordings = calls;
       });
     }
   }
@@ -131,6 +134,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onChanged: (value) async {
                     setState(() => hideShortClips = value);
                     await mediaPreferences.setHideShortClips(value);
+                  },
+                ),
+                _SettingTile(
+                  icon: Icons.call_end_outlined,
+                  title: 'Hide Call Recordings',
+                  subtitle: 'Hide Call Recordings, Recordings, and audio under 15 seconds',
+                  value: hideCallRecordings,
+                  onChanged: (value) async {
+                    setState(() => hideCallRecordings = value);
+                    await mediaPreferences.setHideCallRecordings(value);
                   },
                 ),
                 _ActionTile(
