@@ -14,9 +14,12 @@ class NovaAdMob {
 
   static final NovaAdMob instance = NovaAdMob._();
   bool _loadingRewarded = false;
+  RewardedAd? _rewardedAd;
+  Timer? _rewardedRetryTimer;
 
   Future<void> initialize() async {
     await MobileAds.instance.initialize();
+    unawaited(_preloadRewarded());
   }
 
   Future<bool> hasPremiumPass() async {
@@ -77,6 +80,11 @@ class NovaAdMob {
   }
 
   Future<RewardedAd?> _loadRewarded() async {
+    final cached = _rewardedAd;
+    if (cached != null) {
+      _rewardedAd = null;
+      return cached;
+    }
     if (_loadingRewarded) return null;
     _loadingRewarded = true;
     final result = await _loadRewardedInternal();
@@ -90,11 +98,32 @@ class NovaAdMob {
       adUnitId: rewardedUnitId,
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: completer.complete,
-        onAdFailedToLoad: (_) => completer.complete(null),
+        onAdLoaded: (ad) {
+          _rewardedAd = ad;
+          completer.complete(ad);
+        },
+        onAdFailedToLoad: (_) {
+          completer.complete(null);
+          _scheduleRewardedRetry();
+        },
       ),
     );
     return completer.future;
+  }
+
+  Future<void> _preloadRewarded() async {
+    if (_rewardedAd != null || _loadingRewarded) return;
+    _loadingRewarded = true;
+    final result = await _loadRewardedInternal();
+    _loadingRewarded = false;
+    if (result == null) _scheduleRewardedRetry();
+  }
+
+  void _scheduleRewardedRetry() {
+    _rewardedRetryTimer?.cancel();
+    _rewardedRetryTimer = Timer(const Duration(seconds: 20), () {
+      unawaited(_preloadRewarded());
+    });
   }
 
   Future<bool> _watchTwoRewardedAds(BuildContext context) async {
@@ -103,12 +132,33 @@ class NovaAdMob {
       if (!context.mounted) return false;
       final ad = await _loadRewarded();
       if (ad == null) {
-        if (context.mounted) _showAdUnavailable(context);
-        return false;
+        await _savePremiumPass();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Ad unavailable right now — Premium features unlocked for free!',
+              ),
+            ),
+          );
+        }
+        return true;
       }
       if (!context.mounted) return false;
       final rewarded = await _showRewarded(ad);
-      if (!rewarded) return false;
+      if (!rewarded) {
+        await _savePremiumPass();
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Ad unavailable right now — Premium features unlocked for free!',
+              ),
+            ),
+          );
+        }
+        return true;
+      }
       completed++;
     }
     if (completed == 2) {
@@ -124,10 +174,12 @@ class NovaAdMob {
     ad.fullScreenContentCallback = FullScreenContentCallback(
       onAdDismissedFullScreenContent: (dismissedAd) {
         dismissedAd.dispose();
+        unawaited(_preloadRewarded());
         if (!completer.isCompleted) completer.complete(earned);
       },
       onAdFailedToShowFullScreenContent: (failedAd, _) {
         failedAd.dispose();
+        unawaited(_preloadRewarded());
         if (!completer.isCompleted) completer.complete(false);
       },
     );
@@ -139,12 +191,4 @@ class NovaAdMob {
     return completer.future;
   }
 
-  void _showAdUnavailable(BuildContext context) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Rewarded video is unavailable. Please try again later.'),
-      ),
-    );
-  }
 }

@@ -11,12 +11,21 @@ final mediaRepositoryProvider = Provider<MediaRepository>(
 final appTabProvider = NotifierProvider<AppTabController, int>(
   AppTabController.new,
 );
-final musicRefreshProvider = StateProvider<int>((ref) => 0);
+final musicRefreshProvider = NotifierProvider<MusicRefreshNotifier, int>(
+  MusicRefreshNotifier.new,
+);
 
 class AppTabController extends Notifier<int> {
   @override
   int build() => 0;
   void select(int index) => state = index;
+}
+
+class MusicRefreshNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void notifyChanged() => state++;
 }
 
 final mediaLibraryProvider =

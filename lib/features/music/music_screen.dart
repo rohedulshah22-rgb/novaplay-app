@@ -220,7 +220,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
                     });
                   }
                   await _refresh();
-                  if (mounted) _message('File deleted');
+                  if (mounted) _message('Deleted successfully');
                 } catch (error) {
                   if (mounted) _message('Could not delete file: $error');
                 }
@@ -359,7 +359,7 @@ class _MusicScreenState extends ConsumerState<MusicScreen>
       await _refresh();
       if (mounted) {
         setState(selectedSongIds.clear);
-        _message('${selected.length} files deleted');
+        _message('Deleted successfully');
       }
     } catch (error) {
       if (mounted) _message('Could not delete selected files: $error');

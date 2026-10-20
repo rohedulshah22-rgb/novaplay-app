@@ -1549,7 +1549,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             dialogueEnhancerEnabled: dialogueEnhancer,
                             onDialogueEnhancer: _toggleDialogueEnhancer,
                             aiSubtitlesEnabled: aiSubtitlesEnabled,
-                            onAiSubtitles: _showAiSubtitleSettings,
+                            onAiSubtitles: _showEmbeddedSubtitleTracks,
                             onOrientation: _toggleManualOrientation,
                             onAspectRatio: _cycleAspectRatio,
                             orientationLocked: orientationLocked,
@@ -1922,6 +1922,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             },
           ),
         );
+        trackTiles.add(
+          const Divider(height: 24),
+        );
+        trackTiles.add(
+          ListTile(
+            dense: landscape,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            leading: const Icon(
+              Icons.auto_awesome_rounded,
+              color: NovaColors.cyan,
+            ),
+            title: const Text('AI Live Subtitles / Voice Dubbing'),
+            subtitle: const Text(
+              'Optional AI tools below the free embedded tracks',
+            ),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _showAiSubtitleSettings();
+            },
+          ),
+        );
         return ConstrainedBox(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.sizeOf(sheetContext).height * .85,
@@ -1938,7 +1959,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Choose an embedded language or turn subtitles off. Changes apply immediately.',
+                  'Embedded subtitles and audio tracks are free. AI tools are separate and optional.',
                   style: TextStyle(color: NovaColors.muted),
                 ),
                 const SizedBox(height: 12),
@@ -2200,9 +2221,7 @@ class _ControlsOverlay extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      tooltip: aiSubtitlesEnabled
-                          ? 'Configure AI live subtitles'
-                          : 'Enable AI live subtitles',
+                      tooltip: 'Choose embedded subtitles or AI subtitles',
                       onPressed: onAiSubtitles,
                       icon: Icon(
                         aiSubtitlesEnabled

@@ -87,7 +87,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (!mounted || selected == null) return;
     await showAudioExtractionDialog(context, selected);
     if (mounted) {
-      ref.read(musicRefreshProvider.notifier).state++;
+      ref.read(musicRefreshProvider.notifier).notifyChanged();
       await ref.read(mediaLibraryProvider.notifier).load(force: true);
     }
   }
