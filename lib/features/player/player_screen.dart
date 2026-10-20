@@ -84,6 +84,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   double aiSubtitleFontScale = 1.0;
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
+  bool _subtitleGenerating = false;
   String? _embeddedSubtitleText;
   String? _lastSubtitleCueText;
   SubtitleTrack _selectedNativeSubtitleTrack = SubtitleTrack.no();
@@ -599,7 +600,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = enabled;
-      if (!enabled) _activeCaption = null;
+      if (!enabled) {
+        _activeCaption = null;
+        _subtitleGenerating = false;
+      } else {
+        _subtitleGenerating = true;
+      }
     });
     if (enabled) {
       // Keep the selected native track active so MediaKit continues emitting
@@ -645,9 +651,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _setAiSubtitleLanguage(String language) async {
     _lastDubbedCaption = null;
-    setState(() => aiSubtitleLanguage = language);
+    setState(() {
+      aiSubtitleLanguage = language;
+      if (aiSubtitlesEnabled) _subtitleGenerating = true;
+    });
     await AiSubtitlePreferences.save(language: language);
-    if (aiSubtitlesEnabled) _requestSubtitle();
+    if (aiSubtitlesEnabled) {
+      _startSubtitleLoop();
+      unawaited(_requestSubtitle());
+    }
   }
 
   Future<void> _setAiSubtitleFontScale(double scale) async {
@@ -675,6 +687,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
     _subtitleRequestInFlight = true;
+    if (mounted && aiSubtitlesEnabled) {
+      setState(() => _subtitleGenerating = true);
+    }
     try {
       final result = await aiSubtitleService.recognizeAndTranslate(
         sourcePath: _currentFile.path,
@@ -685,7 +700,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (!mounted || (!aiSubtitlesEnabled && !aiDubbingEnabled)) return;
       if (result.caption != null) {
         final caption = result.caption!;
-        if (aiSubtitlesEnabled) setState(() => _activeCaption = caption);
+        if (aiSubtitlesEnabled) {
+          setState(() {
+            _activeCaption = caption;
+            _subtitleGenerating = false;
+          });
+        }
         if (aiDubbingEnabled) unawaited(_speakDubbingCaption(caption));
       }
     } on AiSubtitleException {
@@ -694,6 +714,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // Direct cue translation is best-effort; keep playback unobstructed.
     } finally {
       _subtitleRequestInFlight = false;
+      if (mounted && aiSubtitlesEnabled && _activeCaption == null) {
+        setState(() => _subtitleGenerating = false);
+      }
     }
   }
 
@@ -1302,6 +1325,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         duration.inMilliseconds,
       );
       await player.seek(Duration(milliseconds: position));
+      if (aiSubtitlesEnabled || aiDubbingEnabled) {
+        _lastSubtitleCueText = null;
+        unawaited(_requestSubtitle());
+      }
       _showHud(
         _formatSeek(Duration(milliseconds: position)),
         Icons.swap_horiz_rounded,
@@ -1489,6 +1516,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   );
                 },
               ),
+              if (aiSubtitlesEnabled && _subtitleGenerating)
+                Positioned(
+                  left: 14,
+                  top: 14,
+                  child: SafeArea(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .62),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        child: Text(
+                          'AI CC (${_selectedSubtitleLanguage.label}): Generating…',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (_hudVisible)
                 Center(
                   child: _Hud(icon: _hudIcon, label: _hudLabel),

@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/theme/app_theme.dart';
 import '../ads/admob_banner.dart';
@@ -13,6 +17,9 @@ import '../media/presentation/audio_extraction_dialog.dart';
 import '../vault/private_vault_actions.dart';
 import '../folders/folder_videos_screen.dart';
 import '../player/player_screen.dart';
+import '../music/audio_cutter_screen.dart';
+import '../music/music_audio_service.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -39,11 +46,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _openVideoToMp3() async {
     final repository = ref.read(mediaRepositoryProvider);
-    final videosFuture = () async {
-      final permission = await repository.permissionState();
-      if (!permission.granted) await repository.requestVideoAccess();
-      return repository.scan(force: true, includeHidden: true);
-    }();
+    final loadedVideos = ref.read(mediaLibraryProvider).files;
+    final videosFuture = loadedVideos.isNotEmpty
+        ? Future<List<VideoFile>>.value(loadedVideos)
+        : () async {
+            final permission = await repository.permissionState();
+            if (!permission.granted) await repository.requestVideoAccess();
+            return repository
+                .scan(force: true, includeHidden: true)
+                .timeout(const Duration(seconds: 5), onTimeout: () => const []);
+          }();
     final selected = await showModalBottomSheet<VideoFile>(
       context: context,
       showDragHandle: true,
@@ -56,10 +68,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           return SizedBox(
             height: MediaQuery.sizeOf(context).height * .72,
             child: snapshot.connectionState != ConnectionState.done
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(child: Text('Loading videos…'))
                 : videos.isEmpty
-                ? const Center(
-                    child: Text('No videos available for audio extraction.'),
+                ? Center(
+                    child: FilledButton.icon(
+                      onPressed: () => _pickVideoFallback(sheetContext),
+                      icon: const Icon(Icons.folder_open_rounded),
+                      label: const Text('Choose a video file'),
+                    ),
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -90,6 +106,75 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.read(musicRefreshProvider.notifier).notifyChanged();
       await ref.read(mediaLibraryProvider.notifier).load(force: true);
     }
+  }
+
+  Future<void> _pickVideoFallback(BuildContext sheetContext) async {
+    final picked = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(
+          label: 'Video files',
+          extensions: ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v'],
+        ),
+      ],
+    );
+    if (picked == null || !sheetContext.mounted) return;
+    final file = File(picked.path);
+    final stat = await file.stat();
+    if (!sheetContext.mounted) return;
+    Navigator.pop(
+      sheetContext,
+      VideoFile(
+        id: picked.path,
+        path: picked.path,
+        name: p.basename(picked.path),
+        sizeBytes: stat.size,
+        modifiedAt: stat.modified,
+      ),
+    );
+  }
+
+  Future<void> _openAudioCutter() async {
+    final allowed = await musicQuery.checkAndRequest();
+    if (!mounted || !allowed) return;
+    final songs = await musicQuery.querySongs().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => <SongModel>[],
+    );
+    if (!mounted) return;
+    final selected = await showModalBottomSheet<SongModel>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * .72,
+        child: songs.isEmpty
+            ? const Center(child: Text('No audio files available.'))
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                itemCount: songs.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (_, index) {
+                  final song = songs[index];
+                  return ListTile(
+                    leading: const Icon(Icons.music_note_rounded),
+                    title: Text(
+                      musicTitle(song),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(musicArtist(song)),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.pop(sheetContext, song),
+                  );
+                },
+              ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => AudioCutterScreen(song: selected)),
+    );
   }
 
   @override
@@ -177,7 +262,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ActionChip(
                                 avatar: Icon(Icons.content_cut_rounded, size: 18, color: NovaColors.violet),
                                 label: Text('Audio Cutter / Ringtone'),
-                                onPressed: () => ref.read(appTabProvider.notifier).select(1),
+                                onPressed: _openAudioCutter,
                               ),
                             ],
                           ),

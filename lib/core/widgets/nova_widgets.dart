@@ -205,10 +205,7 @@ String formatBytes(int bytes) {
     return '${(bytes / 1024).toStringAsFixed(0)} KB';
   }
   if (bytes < 1024 * 1024 * 1024) {
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} GB'.replaceFirst(
-      '0.',
-      '.',
-    );
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
   return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
