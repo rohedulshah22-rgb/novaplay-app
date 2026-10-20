@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -85,3 +88,16 @@ jobs:
           name: novaplay-release-aab
           path: build/app/outputs/bundle/release/app-release.aab
           retention-days: 30
+
+      - name: Publish direct APK and AAB downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_tag="novaplay-build-${GITHUB_RUN_ID}"
+          gh release create "$release_tag" \
+            build/app/outputs/flutter-apk/app-release.apk \
+            build/app/outputs/bundle/release/app-release.aab \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "NovaPlay build ${GITHUB_RUN_NUMBER}" \
+            --notes "Installable APK and Play Store AAB produced by GitHub Actions run ${GITHUB_RUN_ID}." \
+            --prerelease
