@@ -11,19 +11,27 @@ Future<void> showAudioExtractionDialog(
   VideoFile file,
 ) async {
   final service = const AudioExtractionService();
+  String? output;
+  Object? failure;
+  final stopwatch = Stopwatch()..start();
+
   await showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) {
       var started = false;
       var progress = 0.0;
-      var complete = false;
-      String? output;
-      String? error;
+      var elapsedSeconds = 0;
+      Timer? elapsedTimer;
 
       Future<void> runExtraction(
         void Function(void Function()) setDialogState,
       ) async {
+        elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (dialogContext.mounted) {
+            setDialogState(() => elapsedSeconds = stopwatch.elapsed.inSeconds);
+          }
+        });
         try {
           output = await service.extractToMusic(
             sourcePath: file.path,
@@ -35,22 +43,13 @@ Future<void> showAudioExtractionDialog(
               }
             },
           );
-          if (dialogContext.mounted) {
-            setDialogState(() {
-              complete = output != null;
-              error = output == null
-                  ? 'No audio stream could be extracted.'
-                  : null;
-              progress = 1.0;
-            });
-          }
-        } catch (caught) {
-          if (dialogContext.mounted) {
-            setDialogState(() {
-              error = 'Audio extraction failed: $caught';
-              complete = false;
-            });
-          }
+          if (output == null) failure = StateError('No audio stream was extracted.');
+        } catch (error) {
+          failure = error;
+        } finally {
+          elapsedTimer?.cancel();
+          stopwatch.stop();
+          if (dialogContext.mounted) Navigator.of(dialogContext).pop();
         }
       }
 
@@ -66,39 +65,41 @@ Future<void> showAudioExtractionDialog(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  complete
-                      ? 'Saved to Music/NovaPlay'
-                      : error ?? 'Converting ${file.name}…',
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                Text('Converting ${file.name}…',
+                    maxLines: 3, overflow: TextOverflow.ellipsis),
                 const SizedBox(height: 18),
-                if (!complete && error == null) ...[
-                  LinearProgressIndicator(
-                    value: file.duration > Duration.zero ? progress : null,
-                    color: NovaColors.cyan,
-                  ),
-                  const SizedBox(height: 8),
-                  Text('${(progress * 100).round()}%'),
-                ] else if (complete)
-                  const Icon(
-                    Icons.check_circle_rounded,
-                    color: NovaColors.cyan,
-                    size: 32,
-                  ),
+                LinearProgressIndicator(
+                  value: file.duration > Duration.zero ? progress : null,
+                  color: NovaColors.cyan,
+                ),
+                const SizedBox(height: 8),
+                Text(file.duration > Duration.zero
+                    ? '${(progress * 100).round()}% · ${elapsedSeconds}s elapsed'
+                    : 'Working… ${elapsedSeconds}s elapsed'),
               ],
             ),
-            actions: [
-              if (complete || error != null)
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Done'),
-                ),
-            ],
           );
         },
       );
     },
+  );
+
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(failure == null
+          ? 'Audio Extracted Successfully'
+          : 'Audio Extraction Failed'),
+      content: Text(failure == null
+          ? 'Saved to Music/NovaPlay${output == null ? '' : '\n$output'}'
+          : failure.toString()),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    ),
   );
 }

@@ -1905,6 +1905,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ListTile(
             dense: landscape,
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            leading: const Icon(Icons.audiotrack_rounded, color: NovaColors.cyan),
+            title: const Text('Audio Tracks'),
+            subtitle: Text('${player.state.tracks.audio.length} embedded tracks'),
+            onTap: () {
+              Navigator.pop(sheetContext);
+              _showAudioTracks(context);
+            },
+          ),
+          ListTile(
+            dense: landscape,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
             leading: const Icon(
               Icons.subtitles_off_rounded,
               color: NovaColors.cyan,
@@ -1940,6 +1951,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     : 'Embedded · ${entry.value.codec}',
               ),
               onTap: () async {
+                if (aiSubtitlesEnabled) {
+                  await _setAiSubtitlesEnabled(false);
+                  if (!sheetContext.mounted) return;
+                }
                 _selectedNativeSubtitleTrack = entry.value;
                 await player.setSubtitleTrack(entry.value);
                 if (!sheetContext.mounted) return;

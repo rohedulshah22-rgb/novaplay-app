@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:ffmpeg_kit_audio_flutter/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_audio_flutter/return_code.dart';
@@ -10,6 +11,7 @@ class AudioExtractionService {
   const AudioExtractionService();
 
   static const _mediaChannel = MethodChannel('com.novaplay/media');
+  static const _extractionTimeout = Duration(minutes: 10);
 
   Future<String?> extractToMusic({
     required String sourcePath,
@@ -38,42 +40,54 @@ class AudioExtractionService {
     ].join(' ');
 
     final complete = Completer<String?>();
-    await FFmpegKit.executeAsync(
-      command,
-      (session) async {
-        final returnCode = await session.getReturnCode();
-        if (!ReturnCode.isSuccess(returnCode)) {
-          final output = await session.getOutput() ?? '';
-          if (!complete.isCompleted) {
-            complete.completeError(
-              StateError(
-                'FFmpeg audio extraction failed (return code $returnCode). '
-                '${output.trim()}',
-              ),
-            );
-          }
-          return;
-        }
-        try {
-          final published = await _mediaChannel.invokeMethod<String>(
-            'publishAudio',
-            {'tempPath': outputPath, 'displayName': '$safeName.mp3'},
+    Timer? timeout;
+    try {
+      timeout = Timer(_extractionTimeout, () {
+        if (!complete.isCompleted) {
+          complete.completeError(
+            TimeoutException('Audio extraction timed out', _extractionTimeout),
           );
-          if (!complete.isCompleted) complete.complete(published);
-        } on PlatformException catch (error) {
-          if (!complete.isCompleted) complete.completeError(error);
         }
-      },
-      null,
-      (statistics) {
-        if (durationSeconds == null || durationSeconds <= 0) return;
-        final progress = (statistics.getTime() / 1000 / durationSeconds)
-            .clamp(0.0, 0.99)
-            .toDouble();
-        onProgress?.call(progress);
-      },
-    );
-    return complete.future;
+      });
+      await FFmpegKit.executeAsync(
+        command,
+        (session) async {
+          try {
+            final returnCode = await session.getReturnCode();
+            if (!ReturnCode.isSuccess(returnCode)) {
+              final output = await session.getOutput() ?? '';
+              throw StateError(
+                'FFmpeg audio extraction failed (return code $returnCode). ${output.trim()}',
+              );
+            }
+            final file = File(outputPath);
+            if (!await file.exists() || await file.length() == 0) {
+              throw StateError('FFmpeg did not produce an audio file.');
+            }
+            final published = await _mediaChannel
+                .invokeMethod<String>(
+                  'publishAudio',
+                  {'tempPath': outputPath, 'displayName': '$safeName.mp3'},
+                )
+                .timeout(const Duration(seconds: 20));
+            if (!complete.isCompleted) complete.complete(published);
+          } catch (error, stackTrace) {
+            if (!complete.isCompleted) complete.completeError(error, stackTrace);
+          }
+        },
+        null,
+        (statistics) {
+          if (durationSeconds == null || durationSeconds <= 0) return;
+          final progress = (statistics.getTime() / 1000 / durationSeconds)
+              .clamp(0.0, 0.98)
+              .toDouble();
+          onProgress?.call(progress);
+        },
+      );
+      return await complete.future;
+    } finally {
+      timeout?.cancel();
+    }
   }
 
   String _quote(String value) => '"${value.replaceAll('"', '\\"')}"';

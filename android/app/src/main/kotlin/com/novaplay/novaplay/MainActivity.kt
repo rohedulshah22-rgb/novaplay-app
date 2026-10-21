@@ -28,6 +28,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 import com.ryanheise.audioservice.AudioServiceFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -353,7 +355,11 @@ class MainActivity : AudioServiceFragmentActivity() {
                     }
                 }
 
-                if (requestConsent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetUris.isNotEmpty()) {
+                var deleted = 0
+                for (uri in targetUris) {
+                    deleted += contentResolver.delete(uri, null, null)
+                }
+                if (deleted == 0 && requestConsent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetUris.isNotEmpty()) {
                     runOnUiThread {
                         requestDeleteAuthorization(
                             targetUris = targetUris.toList(),
@@ -362,16 +368,6 @@ class MainActivity : AudioServiceFragmentActivity() {
                         )
                     }
                     return@execute
-                }
-
-                var deleted = 0
-                for (uri in targetUris) {
-                    deleted += contentResolver.delete(uri, null, null)
-                }
-                if (deleted == 0 && requestConsent && !uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
-                    runCatching {
-                        deleted += contentResolver.delete(Uri.parse(uriValue), null, null)
-                    }
                 }
                 if (deleted == 0 && !path.isNullOrBlank() && !path.startsWith("content://")) {
                     val file = File(path)
@@ -405,11 +401,24 @@ class MainActivity : AudioServiceFragmentActivity() {
                 }
             } catch (security: SecurityException) {
                 runOnUiThread {
-                    result.error(
-                        "PERMISSION_REQUIRED",
-                        "Android requires permission to delete this media file",
-                        security.message,
-                    )
+                    val targetUris = if (requestConsent) {
+                        resolveAudioUris(path, uriValue)
+                    } else if (!uriValue.isNullOrBlank() && uriValue.startsWith("content://")) {
+                        listOf(Uri.parse(uriValue))
+                    } else if (!path.isNullOrBlank() && path.startsWith("content://")) {
+                        listOf(Uri.parse(path))
+                    } else {
+                        resolveMediaUris(path.orEmpty())
+                    }
+                    if (requestConsent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetUris.isNotEmpty()) {
+                        requestDeleteAuthorization(targetUris, null, result)
+                    } else {
+                        result.error(
+                            "PERMISSION_REQUIRED",
+                            "Android requires permission to delete this media file",
+                            security.message,
+                        )
+                    }
                 }
             } catch (error: Exception) {
                 runOnUiThread {
@@ -773,7 +782,15 @@ class MainActivity : AudioServiceFragmentActivity() {
         if (!output.exists() || output.length() == 0L) {
             throw IllegalStateException("Music/NovaPlay output is empty")
         }
-        MediaScannerConnection.scanFile(this, arrayOf(output.absolutePath), arrayOf(mimeType), null)
+        val scanFinished = CountDownLatch(1)
+        MediaScannerConnection.scanFile(
+            this,
+            arrayOf(output.absolutePath),
+            arrayOf(mimeType),
+        ) { _, _ -> scanFinished.countDown() }
+        // Media indexing is best-effort: never keep the extraction result pending
+        // if Android fails to deliver its scan callback.
+        scanFinished.await(5, TimeUnit.SECONDS)
         return output.absolutePath
     }
 
