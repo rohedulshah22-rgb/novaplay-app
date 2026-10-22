@@ -22,6 +22,9 @@ class AiSubtitleService {
   static const _translationEndpoint = String.fromEnvironment(
     'NOVAPLAY_TRANSLATION_ENDPOINT',
   );
+  static const _subtitleSearchEndpoint = String.fromEnvironment(
+    'NOVAPLAY_SUBTITLE_SEARCH_ENDPOINT',
+  );
   static const _apiKey = String.fromEnvironment('NOVAPLAY_OPENAI_API_KEY');
   static const _translationModel = String.fromEnvironment(
     'NOVAPLAY_TRANSLATION_MODEL',
@@ -31,6 +34,7 @@ class AiSubtitleService {
   final http.Client _client;
   final Map<String, File?> _embeddedSubtitleFiles = {};
   final Set<String> _embeddedExtractionAttempts = {};
+  final Map<String, File?> _episodeSubtitleFiles = {};
 
   bool get isConfigured => _endpoint.isNotEmpty || _apiKey.isNotEmpty;
 
@@ -39,6 +43,7 @@ class AiSubtitleService {
     required Duration position,
     required AiSubtitleLanguage language,
     String? sourceText,
+    int audioTrackIndex = 0,
   }) async {
     final directText = sourceText?.trim();
     if (directText != null && directText.isNotEmpty) {
@@ -60,19 +65,45 @@ class AiSubtitleService {
       return _captionForSourceCaption(embeddedCaption, language);
     }
 
-    if (!isConfigured) {
-      return const AiSubtitleResult();
-    }
-    if (sourcePath.startsWith('content://')) {
-      return const AiSubtitleResult();
+    final episodeCaption = await _readEpisodeSubtitleCaption(
+      sourcePath,
+      position,
+    );
+    if (episodeCaption != null) {
+      return _captionForSourceCaption(episodeCaption, language);
     }
 
-    final audioFile = await _extractAudioWindow(sourcePath, position);
-    if (audioFile == null) return const AiSubtitleResult();
+    if (!isConfigured) {
+      return const AiSubtitleResult(
+        statusMessage:
+            'No caption found. Configure a speech endpoint or episode subtitle relay for AI CC.',
+      );
+    }
+    if (sourcePath.startsWith('content://')) {
+      return const AiSubtitleResult(
+        statusMessage:
+            'Speech recognition cannot read this protected media source.',
+      );
+    }
+
+    final audioFile = await _extractAudioWindow(
+      sourcePath,
+      position,
+      audioTrackIndex: audioTrackIndex,
+    );
+    if (audioFile == null) {
+      return const AiSubtitleResult(
+        statusMessage: 'Could not extract audio for speech recognition.',
+      );
+    }
 
     try {
       final transcript = await _transcribe(audioFile, language);
-      if (transcript.trim().isEmpty) return const AiSubtitleResult();
+      if (transcript.trim().isEmpty) {
+        return const AiSubtitleResult(
+          statusMessage: 'No speech was detected in this audio segment.',
+        );
+      }
       final translated = await _translate(transcript, language);
       final text = translated.trim().isEmpty
           ? transcript.trim()
@@ -81,7 +112,7 @@ class AiSubtitleService {
         caption: AiCaption(
           text: text,
           start: position,
-          end: position + const Duration(seconds: 6),
+          end: position + const Duration(seconds: 4),
         ),
       );
     } finally {
@@ -132,8 +163,9 @@ class AiSubtitleService {
 
   Future<File?> _extractAudioWindow(
     String sourcePath,
-    Duration position,
-  ) async {
+    Duration position, {
+    required int audioTrackIndex,
+  }) async {
     final directory = await getTemporaryDirectory();
     final outputPath = path.join(
       directory.path,
@@ -141,7 +173,8 @@ class AiSubtitleService {
     );
     final command =
         '-y -ss ${_seconds(position)} -i ${_quote(sourcePath)} '
-        '-t 6 -vn -ac 1 -ar 16000 -c:a pcm_s16le ${_quote(outputPath)}';
+        '-map 0:a:$audioTrackIndex -t 4 -vn -ac 1 -ar 16000 '
+        '-f wav -c:a pcm_s16le ${_quote(outputPath)}';
     final session = await FFmpegKit.execute(command);
     final code = await session.getReturnCode();
     final output = File(outputPath);
@@ -272,13 +305,85 @@ class AiSubtitleService {
   ) async {
     if (sourcePath.startsWith('content://')) return null;
     final basePath = path.withoutExtension(sourcePath);
-    for (final extension in ['.srt', '.vtt']) {
+    for (final extension in [
+      '.srt', '.en.srt', '.eng.srt', '.english.srt',
+      '.vtt', '.en.vtt', '.eng.vtt', '.english.vtt',
+      '.ass', '.ssa',
+    ]) {
       final file = File('$basePath$extension');
       if (!await file.exists()) continue;
       final caption = await _parseCaptionFile(file, position);
       if (caption != null) return caption;
     }
     return null;
+  }
+
+
+  Future<AiCaption?> _readEpisodeSubtitleCaption(
+    String sourcePath,
+    Duration position,
+  ) async {
+    if (_subtitleSearchEndpoint.isEmpty) return null;
+    final file = await _fetchEpisodeSubtitle(sourcePath);
+    return file == null ? null : _parseCaptionFile(file, position);
+  }
+
+  Future<File?> _fetchEpisodeSubtitle(String sourcePath) async {
+    if (_episodeSubtitleFiles.containsKey(sourcePath)) {
+      return _episodeSubtitleFiles[sourcePath];
+    }
+    final filename = path.basename(Uri.parse(sourcePath).path);
+    final title = path.basenameWithoutExtension(filename).trim();
+    final episode = RegExp(
+      r'(?:s\s*\d{1,2}\s*e\s*\d{1,3}|season\s*\d+\s*episode\s*\d+|episode\s*\d+)',
+      caseSensitive: false,
+    ).firstMatch(title);
+    if (episode == null) {
+      _episodeSubtitleFiles[sourcePath] = null;
+      return null;
+    }
+    final endpoint = Uri.parse(_subtitleSearchEndpoint).replace(
+      queryParameters: {
+        'query': title,
+        'filename': filename,
+        'episode': episode.group(0)!,
+        'language': 'en',
+      },
+    );
+    final response = await _client.get(endpoint).timeout(
+      const Duration(seconds: 12),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AiSubtitleException(
+        'Episode subtitle search failed (${response.statusCode}).',
+      );
+    }
+    var subtitleText = response.body;
+    if (!subtitleText.contains('-->')) {
+      final decoded = _decodeObject(subtitleText);
+      subtitleText = _readText(decoded) ?? '';
+      if (subtitleText.isEmpty && decoded['url'] is String) {
+        final download = await _client.get(Uri.parse(decoded['url'] as String))
+            .timeout(const Duration(seconds: 12));
+        if (download.statusCode >= 200 && download.statusCode < 300) {
+          subtitleText = download.body;
+        }
+      }
+    }
+    if (!subtitleText.contains('-->')) {
+      _episodeSubtitleFiles[sourcePath] = null;
+      return null;
+    }
+    final directory = await getTemporaryDirectory();
+    final output = File(
+      path.join(
+        directory.path,
+        'novaplay_episode_${sourcePath.hashCode.abs()}.srt',
+      ),
+    );
+    await output.writeAsString(subtitleText, flush: true);
+    _episodeSubtitleFiles[sourcePath] = output;
+    return output;
   }
 
   Future<AiCaption?> _readEmbeddedCaption(
@@ -387,15 +492,23 @@ class AiSubtitleService {
         file.delete();
       }
     }
+    for (final file in _episodeSubtitleFiles.values) {
+      if (file != null) file.delete();
+    }
     _client.close();
   }
 }
 
 class AiSubtitleResult {
-  const AiSubtitleResult({this.caption, this.usedLocalFallback = false});
+  const AiSubtitleResult({
+    this.caption,
+    this.usedLocalFallback = false,
+    this.statusMessage,
+  });
 
   final AiCaption? caption;
   final bool usedLocalFallback;
+  final String? statusMessage;
 }
 
 class AiCaption {

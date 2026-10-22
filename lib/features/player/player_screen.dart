@@ -64,6 +64,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   double _volume = .55;
   Offset? _gestureStart;
   Duration? _seekPreview;
+  Duration? _scrubTimestamp;
   double _startBrightness = .55;
   double _startVolume = .55;
   bool dialogueEnhancer = false;
@@ -87,16 +88,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   Completer<void>? _dubbingSpeechCompleter;
   int _dubbingRequestId = 0;
   Timer? _resumeSaveTimer;
-  Timer? _diagnosticSubtitleTimer;
   bool aiSubtitlesEnabled = false;
   String aiSubtitleLanguage = 'English';
   double aiSubtitleFontScale = 1.0;
   AiCaption? _activeCaption;
   bool _subtitleRequestInFlight = false;
+  bool _subtitleRefreshAfterCurrent = false;
   bool _subtitleGenerating = false;
   String? _embeddedSubtitleText;
   String? _lastSubtitleCueText;
   SubtitleTrack _selectedNativeSubtitleTrack = SubtitleTrack.no();
+  bool _selectedSubtitleIsBitmap = false;
+  String? _lastAiSubtitleNotice;
   bool _hasReceivedSubtitleCue = false;
   int _seekIndicatorSeconds = 0;
   int _seekIndicatorDirection = 1;
@@ -157,11 +160,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (text == _lastSubtitleCueText) return;
       _lastSubtitleCueText = text;
       _hasReceivedSubtitleCue = true;
-      _diagnosticSubtitleTimer?.cancel();
       if (aiSubtitlesEnabled || aiDubbingEnabled) {
         // Do not render the source cue here: AI CC must show only the
         // translated result, never a source-language flash.
-        _requestSubtitle();
+        if (_subtitleRequestInFlight) {
+          _subtitleRefreshAfterCurrent = true;
+        } else {
+          _requestSubtitle();
+        }
       }
     });
     _playingSubscription = player.stream.playing.listen((playing) {
@@ -201,6 +207,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
     await player.open(playlist, play: true);
     await player.setPlaylistMode(PlaylistMode.none);
+    await _configureNativeSubtitleOutput(visible: true);
     _selectedNativeSubtitleTrack = SubtitleTrack.no();
     await player.setSubtitleTrack(_selectedNativeSubtitleTrack);
     if (!mounted) return;
@@ -266,6 +273,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _resetCurrentItemSubtitleState() {
     _selectedNativeSubtitleTrack = SubtitleTrack.auto();
+    _selectedSubtitleIsBitmap = false;
+    _subtitleRefreshAfterCurrent = false;
     _embeddedSubtitleText = null;
     _lastSubtitleCueText = null;
     _hasReceivedSubtitleCue = false;
@@ -303,6 +312,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (mounted) setState(() {});
       await player.jump(nextIndex);
       _selectedNativeSubtitleTrack = player.state.track.subtitle;
+      _selectedSubtitleIsBitmap = _isBitmapSubtitle(
+        _selectedNativeSubtitleTrack,
+      );
+      await _configureNativeSubtitleOutput(
+        visible: !aiSubtitlesEnabled || _selectedSubtitleIsBitmap,
+      );
       await _restoreResumeForCurrent(showFeedback: false);
     } finally {
       _queueTransitioning = false;
@@ -595,7 +610,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (aiDubbingEnabled) unawaited(_configureDubbingTts());
     if (aiSubtitlesEnabled || aiDubbingEnabled) {
       _startSubtitleLoop();
-      if (aiSubtitlesEnabled) _scheduleDiagnosticSubtitle();
     }
   }
 
@@ -604,6 +618,57 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         (language) => language.label == aiSubtitleLanguage,
         orElse: () => AiSubtitlePreferences.languages.first,
       );
+
+  Future<void> _configureNativeSubtitleOutput({required bool visible}) async {
+    final nativePlayer = player.platform as dynamic;
+    final properties = {
+      'sub-visibility': visible ? 'yes' : 'no',
+      'blend-subtitles': 'yes',
+      'sub-ass': 'yes',
+    };
+    for (final property in properties.entries) {
+      try {
+        await nativePlayer.setProperty(property.key, property.value);
+      } catch (_) {
+        // Keep trying other settings if a backend does not support one option.
+      }
+    }
+  }
+
+  bool _isBitmapSubtitle(SubtitleTrack track) {
+    final metadata = '${track.codec ?? ''} ${track.title ?? ''}'.toLowerCase();
+    return metadata.contains('hdmv_pgs_subtitle') ||
+        metadata.contains('dvd_subtitle') ||
+        metadata.contains('pgs') ||
+        metadata.contains('vobsub');
+  }
+
+  int get _activeAudioStreamIndex {
+    final selectedId = player.state.track.audio.id;
+    final tracks = player.state.tracks.audio
+        .where((track) => track.id != 'no' && track.id != 'auto')
+        .toList(growable: false);
+    final index = tracks.indexWhere((track) => track.id == selectedId);
+    return index < 0 ? 0 : index;
+  }
+
+  void _showAiSubtitleNotice(String message) {
+    final text = message.trim();
+    if (text.isEmpty || text == _lastAiSubtitleNotice || !mounted) return;
+    _lastAiSubtitleNotice = text;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(text),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    Timer(const Duration(seconds: 20), () {
+      if (_lastAiSubtitleNotice == text) _lastAiSubtitleNotice = null;
+    });
+  }
 
   Future<void> _setAiSubtitlesEnabled(bool enabled) async {
     if (!mounted) return;
@@ -617,45 +682,27 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       }
     });
     if (enabled) {
-      // Keep the selected native track active so MediaKit continues emitting
-      // live cues, but hide only its renderer through the Video widget above.
+      // Keep the native track active for live cue delivery; configure mpv to
+      // hide text rendering but preserve bitmap rendering when applicable.
       _lastSubtitleCueText = null;
       _hasReceivedSubtitleCue = false;
+    } else {
+      _subtitleRefreshAfterCurrent = false;
     }
     await AiSubtitlePreferences.save(enabled: enabled);
     if (!mounted) return;
+    await _configureNativeSubtitleOutput(
+      visible: !enabled || _selectedSubtitleIsBitmap,
+    );
     if (enabled) {
       _startSubtitleLoop();
-      _scheduleDiagnosticSubtitle();
       _showHud('AI CC on', Icons.closed_caption_rounded);
     } else {
       if (!aiDubbingEnabled) _stopSubtitleLoop();
-      _diagnosticSubtitleTimer?.cancel();
       await player.setSubtitleTrack(_selectedNativeSubtitleTrack);
       if (!mounted) return;
       _showHud('AI CC off', Icons.closed_caption_disabled_rounded);
     }
-  }
-
-  void _scheduleDiagnosticSubtitle() {
-    _diagnosticSubtitleTimer?.cancel();
-    if (!aiSubtitlesEnabled || aiSubtitleLanguage != 'Bengali') return;
-    _diagnosticSubtitleTimer = Timer(const Duration(milliseconds: 700), () {
-      if (!mounted || !aiSubtitlesEnabled || _hasReceivedSubtitleCue) return;
-      final position = player.state.position;
-      setState(
-        () => _activeCaption = const AiCaption(
-          text: 'AI Subtitle Active (বাংলা)',
-          start: Duration.zero,
-          end: Duration(seconds: 3),
-        ),
-      );
-      Timer(const Duration(seconds: 3), () {
-        if (!mounted || _hasReceivedSubtitleCue) return;
-        final current = player.state.position;
-        if (current >= position) setState(() => _activeCaption = null);
-      });
-    });
   }
 
   Future<void> _setAiSubtitleLanguage(String language) async {
@@ -679,7 +726,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   void _startSubtitleLoop() {
     _subtitleTimer?.cancel();
     _subtitleTimer = Timer.periodic(
-      const Duration(seconds: 6),
+      const Duration(seconds: 4),
       (_) => _requestSubtitle(),
     );
     _requestSubtitle();
@@ -691,8 +738,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _requestSubtitle() async {
-    if ((!aiSubtitlesEnabled && !aiDubbingEnabled) ||
-        _subtitleRequestInFlight) {
+    if (!aiSubtitlesEnabled && !aiDubbingEnabled) return;
+    if (_subtitleRequestInFlight) {
+      _subtitleRefreshAfterCurrent = true;
       return;
     }
     _subtitleRequestInFlight = true;
@@ -705,6 +753,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         position: player.state.position,
         language: _selectedSubtitleLanguage,
         sourceText: _embeddedSubtitleText,
+        audioTrackIndex: _activeAudioStreamIndex,
       );
       if (!mounted || (!aiSubtitlesEnabled && !aiDubbingEnabled)) return;
       if (result.caption != null) {
@@ -716,16 +765,43 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           });
         }
         if (aiDubbingEnabled) unawaited(_speakDubbingCaption(caption));
+      } else if (aiSubtitlesEnabled) {
+        _showAiSubtitleNotice(
+          result.statusMessage ?? 'No subtitle cue or speech was detected.',
+        );
       }
-    } on AiSubtitleException {
-      // Direct cue translation is best-effort; keep playback unobstructed.
-    } catch (_) {
-      // Direct cue translation is best-effort; keep playback unobstructed.
+    } on AiSubtitleException catch (error) {
+      if (aiSubtitlesEnabled) _showAiSubtitleNotice(error.message);
+    } catch (error) {
+      if (aiSubtitlesEnabled) {
+        _showAiSubtitleNotice('AI subtitles unavailable: $error');
+      }
     } finally {
       _subtitleRequestInFlight = false;
-      if (mounted && aiSubtitlesEnabled && _activeCaption == null) {
+      final refreshAgain = _subtitleRefreshAfterCurrent &&
+          mounted &&
+          (aiSubtitlesEnabled || aiDubbingEnabled);
+      _subtitleRefreshAfterCurrent = false;
+      if (!refreshAgain && mounted && aiSubtitlesEnabled && _activeCaption == null) {
         setState(() => _subtitleGenerating = false);
       }
+      if (refreshAgain) unawaited(_requestSubtitle());
+    }
+  }
+
+  Future<void> _seekAndRefreshSubtitles(Duration position) async {
+    await player.seek(position);
+    if (!aiSubtitlesEnabled && !aiDubbingEnabled) return;
+    _lastSubtitleCueText = null;
+    _embeddedSubtitleText = null;
+    _activeCaption = null;
+    if (mounted && aiSubtitlesEnabled) {
+      setState(() => _subtitleGenerating = true);
+    }
+    if (_subtitleRequestInFlight) {
+      _subtitleRefreshAfterCurrent = true;
+    } else {
+      unawaited(_requestSubtitle());
     }
   }
 
@@ -1230,7 +1306,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _seekIndicatorTimer?.cancel();
     _subtitleTimer?.cancel();
     _resumeSaveTimer?.cancel();
-    _diagnosticSubtitleTimer?.cancel();
     _dubbingRequestId++;
     unawaited(_dubbingTts.stop());
     if (_dubbingRestorationVolume != null) {
@@ -1333,11 +1408,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         0,
         duration.inMilliseconds,
       );
-      await player.seek(Duration(milliseconds: position));
-      if (aiSubtitlesEnabled || aiDubbingEnabled) {
-        _lastSubtitleCueText = null;
-        unawaited(_requestSubtitle());
-      }
+      await _seekAndRefreshSubtitles(Duration(milliseconds: position));
       _showHud(
         _formatSeek(Duration(milliseconds: position)),
         Icons.swap_horiz_rounded,
@@ -1414,7 +1485,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
     _queuedSeekPosition = target;
     _seekQueue = _seekQueue.catchError((_) {}).then((_) async {
-      await player.seek(target);
+      await _seekAndRefreshSubtitles(target);
       if (_queuedSeekPosition == target) _queuedSeekPosition = null;
     });
     _showSeekIndicator(direction: direction);
@@ -1454,7 +1525,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       aspectRatio: _videoAspectRatio,
                       controls: NoVideoControls,
                       subtitleViewConfiguration: SubtitleViewConfiguration(
-                        visible: !aiSubtitlesEnabled,
+                        visible: false,
                       ),
                     ),
                   ),
@@ -1471,6 +1542,31 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               ),
               if (_seekPreview != null)
                 Center(child: _SeekPreview(position: _seekPreview!)),
+              if (_scrubTimestamp != null)
+                Center(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .78),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: NovaColors.cyan, width: 1.5),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 13,
+                        ),
+                        child: Text(
+                          formatDuration(_scrubTimestamp!),
+                          style: const TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (_seekIndicatorVisible)
                 Positioned(
                   left: _seekIndicatorDirection < 0 ? 28 : null,
@@ -1605,8 +1701,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                             onCast: _showCastSheet,
                             onSnapshot: _captureSnapshot,
                             onGif: _captureGif,
-                            dialogueEnhancerEnabled: dialogueEnhancer,
-                            onDialogueEnhancer: _toggleDialogueEnhancer,
+                            onAudioTracks: _showEmbeddedSubtitleTracks,
+                            onSeek: _seekAndRefreshSubtitles,
+                            onScrubPreviewChanged: (value) {
+                              if (mounted) {
+                                setState(() => _scrubTimestamp = value);
+                              }
+                            },
                             aiSubtitlesEnabled: aiSubtitlesEnabled,
                             onAiSubtitles: _showEmbeddedSubtitleTracks,
                             onOrientation: _toggleManualOrientation,
@@ -1874,10 +1975,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       useSafeArea: true,
       builder: (_) {
         var dubbingEnabled = aiDubbingEnabled;
+        var dialogueEnabled = dialogueEnhancer;
         return StatefulBuilder(
           builder: (context, setSheetState) => _PlayerOptions(
             player: player,
             aiDubbingEnabled: dubbingEnabled,
+            dialogueEnhancerEnabled: dialogueEnabled,
             sleepTimerLabel: _sleepUntilVideoEnd
                 ? 'End of current video'
                 : _sleepRemaining == null
@@ -1888,6 +1991,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               onChanged: () => setSheetState(() {}),
             ),
             onSubtitle: _showEmbeddedSubtitleTracks,
+            onDialogueEnhancerChanged: (value) async {
+              if (value != dialogueEnhancer) await _toggleDialogueEnhancer();
+              setSheetState(() => dialogueEnabled = dialogueEnhancer);
+            },
             onAiDubbingChanged: (value) => _handleAiDubbingToggle(
               dialogContext: context,
               value: value,
@@ -1903,6 +2010,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final tracks = player.state.tracks.subtitle
         .where((track) => track.id != 'no' && track.id != 'auto')
         .toList(growable: false);
+    final allAudioTracks = player.state.tracks.audio;
+    final autoAudioTracks = allAudioTracks.where((track) => track.id == 'auto');
+    final audioTracks = allAudioTracks
+        .where((track) => track.id != 'no' && track.id != 'auto')
+        .toList(growable: false);
+    final selectedAudioTrackId = player.state.track.audio.id;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: NovaColors.surface,
@@ -1913,32 +2026,87 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         final landscape =
             MediaQuery.orientationOf(sheetContext) == Orientation.landscape;
         final trackTiles = <Widget>[
-          ListTile(
-            dense: landscape,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-            leading: const Icon(Icons.audiotrack_rounded, color: NovaColors.cyan),
-            title: const Text('Audio Tracks'),
-            subtitle: Text('${player.state.tracks.audio.length} embedded tracks'),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              _showAudioTracks(context);
-            },
+          const Padding(
+            padding: EdgeInsets.fromLTRB(8, 8, 8, 3),
+            child: Text('Audio Tracks', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+          if (autoAudioTracks.isNotEmpty)
+            ListTile(
+              dense: landscape,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              selected: selectedAudioTrackId == autoAudioTracks.first.id,
+              selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
+              leading: const Icon(Icons.auto_awesome_rounded, color: NovaColors.cyan),
+              title: const Text('Auto'),
+              trailing: selectedAudioTrackId == autoAudioTracks.first.id
+                  ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                  : null,
+              onTap: () async {
+                await player.setAudioTrack(autoAudioTracks.first);
+                await _restoreStereoAudioOutput(player);
+                if (!sheetContext.mounted) return;
+                Navigator.pop(sheetContext);
+                _showHud('Audio track: Auto', Icons.audiotrack_rounded);
+              },
+            ),
+          ...audioTracks.asMap().entries.map(
+            (entry) => ListTile(
+              dense: landscape,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              selected: selectedAudioTrackId == entry.value.id,
+              selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
+              leading: const Icon(Icons.audiotrack_rounded, color: NovaColors.cyan),
+              title: Text(trackLanguageLabel(
+                title: entry.value.title,
+                language: entry.value.language,
+              )),
+              subtitle: Text(entry.value.codec == null
+                  ? 'Audio track ${entry.key + 1}'
+                  : 'Embedded · ${entry.value.codec}'),
+              trailing: selectedAudioTrackId == entry.value.id
+                  ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                  : null,
+              onTap: () async {
+                await player.setAudioTrack(entry.value);
+                await _restoreStereoAudioOutput(player);
+                if (!sheetContext.mounted) return;
+                Navigator.pop(sheetContext);
+                _showHud(
+                  '${trackLanguageLabel(title: entry.value.title, language: entry.value.language)} selected',
+                  Icons.audiotrack_rounded,
+                );
+              },
+            ),
+          ),
+          if (autoAudioTracks.isEmpty && audioTracks.isEmpty)
+            const ListTile(dense: true, title: Text('No audio tracks found.')),
+          const Divider(height: 20),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(8, 4, 8, 3),
+            child: Text('Subtitles', style: TextStyle(fontWeight: FontWeight.w800)),
           ),
           ListTile(
             dense: landscape,
             contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            selected: player.state.track.subtitle.id == 'no',
+            selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
             leading: const Icon(
               Icons.subtitles_off_rounded,
               color: NovaColors.cyan,
             ),
             title: const Text('None / Turn Off Subtitles'),
             subtitle: const Text('Hide embedded subtitle output'),
+            trailing: player.state.track.subtitle.id == 'no'
+                ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                : null,
             onTap: () async {
               _selectedNativeSubtitleTrack = SubtitleTrack.no();
+              _selectedSubtitleIsBitmap = false;
               _embeddedSubtitleText = null;
               _lastSubtitleCueText = null;
               _hasReceivedSubtitleCue = false;
               _activeCaption = null;
+              await _configureNativeSubtitleOutput(visible: false);
               await player.setSubtitleTrack(SubtitleTrack.no());
               if (!sheetContext.mounted) return;
               Navigator.pop(sheetContext);
@@ -1951,6 +2119,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             (entry) => ListTile(
               dense: landscape,
               contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+              selected: entry.value.id == player.state.track.subtitle.id,
+              selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
               leading: const Icon(
                 Icons.subtitles_rounded,
                 color: NovaColors.violet,
@@ -1961,12 +2131,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     ? 'Embedded track ${entry.key + 1}'
                     : 'Embedded · ${entry.value.codec}',
               ),
+              trailing: entry.value.id == player.state.track.subtitle.id
+                  ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                  : null,
               onTap: () async {
                 if (aiSubtitlesEnabled) {
                   await _setAiSubtitlesEnabled(false);
                   if (!sheetContext.mounted) return;
                 }
                 _selectedNativeSubtitleTrack = entry.value;
+                _selectedSubtitleIsBitmap = _isBitmapSubtitle(entry.value);
+                await _configureNativeSubtitleOutput(
+                  visible: !aiSubtitlesEnabled || _selectedSubtitleIsBitmap,
+                );
                 await player.setSubtitleTrack(entry.value);
                 if (!sheetContext.mounted) return;
                 Navigator.pop(sheetContext);
@@ -2030,12 +2207,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Subtitle tracks',
+                  'Audio & subtitles',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Embedded subtitles and audio tracks are free. AI tools are separate and optional.',
+                  'Choose an audio language and subtitle track. Active tracks are marked with a check.',
                   style: TextStyle(color: NovaColors.muted),
                 ),
                 const SizedBox(height: 12),
@@ -2086,6 +2263,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       language: 'und',
     );
     _selectedNativeSubtitleTrack = externalTrack;
+    _selectedSubtitleIsBitmap = _isBitmapSubtitle(externalTrack);
+    await _configureNativeSubtitleOutput(
+      visible: !aiSubtitlesEnabled || _selectedSubtitleIsBitmap,
+    );
     await player.setSubtitleTrack(externalTrack);
     if (mounted) {
       _showHud('External subtitles selected', Icons.subtitles_rounded);
@@ -2093,6 +2274,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
   void _showAudioTracks(BuildContext context) {
     final allTracks = player.state.tracks.audio;
+    final selectedTrackId = player.state.track.audio.id;
     final autoTracks = allTracks.where((track) => track.id == 'auto');
     final tracks = allTracks
         .where((track) => track.id != 'no' && track.id != 'auto')
@@ -2118,8 +2300,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             const SizedBox(height: 12),
             if (autoTracks.isNotEmpty)
               ListTile(
+                selected: selectedTrackId == autoTracks.first.id,
+                selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
                 title: const Text('Auto'),
                 leading: const Icon(Icons.auto_awesome),
+                trailing: selectedTrackId == autoTracks.first.id
+                    ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                    : null,
                 onTap: () async {
                   await player.setAudioTrack(autoTracks.first);
                   await _restoreStereoAudioOutput(player);
@@ -2128,6 +2315,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               ),
             ...tracks.asMap().entries.map(
               (entry) => ListTile(
+                selected: selectedTrackId == entry.value.id,
+                selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
                 title: Text(
                   trackLanguageLabel(
                     title: entry.value.title,
@@ -2140,6 +2329,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       : 'Embedded · ${entry.value.codec}',
                 ),
                 leading: const Icon(Icons.audiotrack),
+                trailing: selectedTrackId == entry.value.id
+                    ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                    : null,
                 onTap: () async {
                   await player.setAudioTrack(entry.value);
                   await _restoreStereoAudioOutput(player);
@@ -2168,8 +2360,9 @@ class _ControlsOverlay extends StatelessWidget {
     required this.onCast,
     required this.onSnapshot,
     required this.onGif,
-    required this.dialogueEnhancerEnabled,
-    required this.onDialogueEnhancer,
+    required this.onAudioTracks,
+    required this.onSeek,
+    required this.onScrubPreviewChanged,
     required this.aiSubtitlesEnabled,
     required this.onAiSubtitles,
     required this.onOrientation,
@@ -2191,8 +2384,9 @@ class _ControlsOverlay extends StatelessWidget {
   final VoidCallback onCast;
   final VoidCallback onSnapshot;
   final VoidCallback onGif;
-  final bool dialogueEnhancerEnabled;
-  final VoidCallback onDialogueEnhancer;
+  final VoidCallback onAudioTracks;
+  final ValueChanged<Duration> onSeek;
+  final ValueChanged<Duration?> onScrubPreviewChanged;
   final bool aiSubtitlesEnabled;
   final VoidCallback onAiSubtitles;
   final VoidCallback onOrientation;
@@ -2334,7 +2528,8 @@ class _ControlsOverlay extends StatelessWidget {
                         sourcePath: file.path,
                         position: position,
                         duration: duration,
-                        onSeek: player.seek,
+                        onSeek: onSeek,
+                        onPreviewChanged: onScrubPreviewChanged,
                         onInteraction: onInteract,
                       ),
                     );
@@ -2346,16 +2541,9 @@ class _ControlsOverlay extends StatelessWidget {
                 child: Row(
                   children: [
                     IconButton(
-                      tooltip: dialogueEnhancerEnabled
-                          ? 'Disable dialogue enhancer'
-                          : 'Enable dialogue enhancer',
-                      onPressed: onDialogueEnhancer,
-                      icon: Icon(
-                        Icons.record_voice_over_rounded,
-                        color: dialogueEnhancerEnabled
-                            ? NovaColors.cyan
-                            : Colors.white,
-                      ),
+                      tooltip: 'Audio Track / Dub',
+                      onPressed: onAudioTracks,
+                      icon: const Icon(Icons.audiotrack_rounded),
                     ),
                     IconButton(
                       tooltip: 'Choose embedded subtitles or AI subtitles',
@@ -2386,13 +2574,9 @@ class _ControlsOverlay extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      dialogueEnhancerEnabled
-                          ? 'Dialogue boost'
-                          : 'Swipe for controls',
+                      'Audio / CC',
                       style: TextStyle(
-                        color: dialogueEnhancerEnabled
-                            ? NovaColors.cyan
-                            : Colors.white.withValues(alpha: .7),
+                        color: Colors.white.withValues(alpha: .7),
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                       ),
@@ -2716,6 +2900,8 @@ class _PlayerOptions extends StatelessWidget {
     required this.player,
     required this.onSubtitle,
     required this.aiDubbingEnabled,
+    required this.dialogueEnhancerEnabled,
+    required this.onDialogueEnhancerChanged,
     required this.onAiDubbingChanged,
     required this.sleepTimerLabel,
     required this.onSleepTimer,
@@ -2723,6 +2909,8 @@ class _PlayerOptions extends StatelessWidget {
   final Player player;
   final VoidCallback onSubtitle;
   final bool aiDubbingEnabled;
+  final bool dialogueEnhancerEnabled;
+  final ValueChanged<bool> onDialogueEnhancerChanged;
   final ValueChanged<bool> onAiDubbingChanged;
   final String sleepTimerLabel;
   final VoidCallback onSleepTimer;
@@ -2731,6 +2919,15 @@ class _PlayerOptions extends StatelessWidget {
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final actions = <Widget>[
+      SwitchListTile.adaptive(
+        dense: landscape,
+        contentPadding: EdgeInsets.zero,
+        value: dialogueEnhancerEnabled,
+        title: const Text('Dialogue Boost'),
+        subtitle: const Text('Enhance speech clarity'),
+        secondary: const Icon(Icons.record_voice_over_rounded),
+        onChanged: onDialogueEnhancerChanged,
+      ),
       ListTile(
         dense: landscape,
         contentPadding: EdgeInsets.zero,
@@ -2850,6 +3047,7 @@ class _PlayerOptions extends StatelessWidget {
 
   void _showAudioTracks(BuildContext context) {
     final allTracks = player.state.tracks.audio;
+    final selectedTrackId = player.state.track.audio.id;
     final autoTracks = allTracks.where((track) => track.id == 'auto');
     final tracks = allTracks
         .where((track) => track.id != 'no' && track.id != 'auto')
@@ -2875,8 +3073,13 @@ class _PlayerOptions extends StatelessWidget {
             const SizedBox(height: 12),
             if (autoTracks.isNotEmpty)
               ListTile(
+                selected: selectedTrackId == autoTracks.first.id,
+                selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
                 title: const Text('Auto'),
                 leading: const Icon(Icons.auto_awesome),
+                trailing: selectedTrackId == autoTracks.first.id
+                    ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                    : null,
                 onTap: () async {
                   await player.setAudioTrack(autoTracks.first);
                   await _restoreStereoAudioOutput(player);
@@ -2885,6 +3088,8 @@ class _PlayerOptions extends StatelessWidget {
               ),
             ...tracks.asMap().entries.map(
               (entry) => ListTile(
+                selected: selectedTrackId == entry.value.id,
+                selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
                 title: Text(
                   trackLanguageLabel(
                     title: entry.value.title,
@@ -2897,6 +3102,9 @@ class _PlayerOptions extends StatelessWidget {
                       : 'Embedded · ${entry.value.codec}',
                 ),
                 leading: const Icon(Icons.audiotrack),
+                trailing: selectedTrackId == entry.value.id
+                    ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
+                    : null,
                 onTap: () async {
                   await player.setAudioTrack(entry.value);
                   await _restoreStereoAudioOutput(player);

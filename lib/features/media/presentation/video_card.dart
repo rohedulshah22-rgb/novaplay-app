@@ -176,6 +176,18 @@ class VideoCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: NovaColors.muted, fontSize: 11),
               ),
+              if (file.progress > Duration.zero && file.duration > Duration.zero)
+                Padding(
+                  padding: const EdgeInsets.only(top: 3),
+                  child: Text(
+                    _watchedDurationLabel(file),
+                    style: const TextStyle(
+                      color: NovaColors.cyan,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -257,6 +269,17 @@ class VideoCard extends StatelessWidget {
                       fontSize: 11,
                     ),
                   ),
+                  if (file.progress > Duration.zero && file.duration > Duration.zero) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _watchedDurationLabel(file),
+                      style: const TextStyle(
+                        color: NovaColors.cyan,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -290,6 +313,12 @@ class VideoCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _watchedDurationLabel(VideoFile file) {
+  final watched = file.progress.inMinutes.clamp(0, file.duration.inMinutes);
+  final total = file.duration.inMinutes;
+  return '$watched min / $total min watched';
 }
 
 class _DurationPill extends StatelessWidget {

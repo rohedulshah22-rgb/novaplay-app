@@ -14,12 +14,14 @@ class PrecisionScrubber extends StatefulWidget {
     required this.duration,
     required this.onSeek,
     this.onInteraction,
+    this.onPreviewChanged,
   });
   final String sourcePath;
   final Duration position;
   final Duration duration;
   final ValueChanged<Duration> onSeek;
   final VoidCallback? onInteraction;
+  final ValueChanged<Duration?>? onPreviewChanged;
 
   @override
   State<PrecisionScrubber> createState() => _PrecisionScrubberState();
@@ -89,16 +91,23 @@ class _PrecisionScrubberState extends State<PrecisionScrubber> {
                 max: max,
                 onChangeStart: (_) {
                   setState(() => dragging = true);
+                  widget.onPreviewChanged?.call(
+                    Duration(milliseconds: previewMilliseconds.round()),
+                  );
                   widget.onInteraction?.call();
                 },
                 onChanged: (value) {
                   setState(() => previewMilliseconds = value);
+                  widget.onPreviewChanged?.call(
+                    Duration(milliseconds: value.round()),
+                  );
                   widget.onInteraction?.call();
                 },
                 onChangeEnd: (value) {
                   final next = Duration(milliseconds: value.round());
                   widget.onSeek(next);
                   setState(() => dragging = false);
+                  widget.onPreviewChanged?.call(null);
                   widget.onInteraction?.call();
                 },
               ),
