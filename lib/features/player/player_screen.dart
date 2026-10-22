@@ -2080,6 +2080,60 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _showHud('External subtitles selected', Icons.subtitles_rounded);
     }
   }
+  void _showAudioTracks(BuildContext context) {
+    final tracks = player.state.tracks.audio;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NovaColors.surface,
+      showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheetContext).height * .85,
+        ),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text(
+              'Audio tracks',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              title: const Text('Auto'),
+              leading: const Icon(Icons.auto_awesome),
+              onTap: () async {
+                await player.setAudioTrack(AudioTrack.auto());
+                if (sheetContext.mounted) Navigator.pop(sheetContext);
+              },
+            ),
+            ...tracks.asMap().entries.map(
+              (entry) => ListTile(
+                title: Text(
+                  trackLanguageLabel(
+                    title: entry.value.title,
+                    language: entry.value.language,
+                  ),
+                ),
+                subtitle: Text(
+                  entry.value.codec == null
+                      ? 'Embedded audio track ${entry.key + 1}'
+                      : 'Embedded · ${entry.value.codec}',
+                ),
+                leading: const Icon(Icons.audiotrack),
+                onTap: () async {
+                  await player.setAudioTrack(entry.value);
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _ControlsOverlay extends StatelessWidget {
