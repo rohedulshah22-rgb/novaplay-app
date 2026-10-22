@@ -82,7 +82,7 @@ Future<void> showAudioExtractionDialog(
         },
       );
     },
-  });
+  );
 
   if (!context.mounted) return;
   if (failure == null && output != null) {
