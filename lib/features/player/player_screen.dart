@@ -27,6 +27,15 @@ import 'capture_service.dart';
 import 'cast_service.dart';
 import 'precision_scrubber.dart';
 
+Future<void> _restoreStereoAudioOutput(Player player) async {
+  try {
+    await player.setVolume(100.0);
+    await (player.platform as dynamic).setProperty('audio-channels', 'stereo');
+  } catch (_) {
+    // Some desktop/test backends do not expose mpv audio properties.
+  }
+}
+
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key, required this.file, this.queue});
   final VideoFile file;
@@ -1891,7 +1900,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _showEmbeddedSubtitleTracks() {
-    final tracks = player.state.tracks.subtitle;
+    final tracks = player.state.tracks.subtitle
+        .where((track) => track.id != 'no' && track.id != 'auto')
+        .toList(growable: false);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: NovaColors.surface,
@@ -2081,7 +2092,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
   }
   void _showAudioTracks(BuildContext context) {
-    final tracks = player.state.tracks.audio;
+    final allTracks = player.state.tracks.audio;
+    final autoTracks = allTracks.where((track) => track.id == 'auto');
+    final tracks = allTracks
+        .where((track) => track.id != 'no' && track.id != 'auto')
+        .toList(growable: false);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: NovaColors.surface,
@@ -2101,14 +2116,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
-            ListTile(
-              title: const Text('Auto'),
-              leading: const Icon(Icons.auto_awesome),
-              onTap: () async {
-                await player.setAudioTrack(AudioTrack.auto());
-                if (sheetContext.mounted) Navigator.pop(sheetContext);
-              },
-            ),
+            if (autoTracks.isNotEmpty)
+              ListTile(
+                title: const Text('Auto'),
+                leading: const Icon(Icons.auto_awesome),
+                onTap: () async {
+                  await player.setAudioTrack(autoTracks.first);
+                  await _restoreStereoAudioOutput(player);
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
+                },
+              ),
             ...tracks.asMap().entries.map(
               (entry) => ListTile(
                 title: Text(
@@ -2125,6 +2142,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 leading: const Icon(Icons.audiotrack),
                 onTap: () async {
                   await player.setAudioTrack(entry.value);
+                  await _restoreStereoAudioOutput(player);
                   if (sheetContext.mounted) Navigator.pop(sheetContext);
                 },
               ),
@@ -2831,7 +2849,11 @@ class _PlayerOptions extends StatelessWidget {
   }
 
   void _showAudioTracks(BuildContext context) {
-    final tracks = player.state.tracks.audio;
+    final allTracks = player.state.tracks.audio;
+    final autoTracks = allTracks.where((track) => track.id == 'auto');
+    final tracks = allTracks
+        .where((track) => track.id != 'no' && track.id != 'auto')
+        .toList(growable: false);
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: NovaColors.surface,
@@ -2851,14 +2873,16 @@ class _PlayerOptions extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 12),
-            ListTile(
-              title: const Text('Auto'),
-              leading: const Icon(Icons.auto_awesome),
-              onTap: () {
-                player.setAudioTrack(AudioTrack.auto());
-                Navigator.pop(context);
-              },
-            ),
+            if (autoTracks.isNotEmpty)
+              ListTile(
+                title: const Text('Auto'),
+                leading: const Icon(Icons.auto_awesome),
+                onTap: () async {
+                  await player.setAudioTrack(autoTracks.first);
+                  await _restoreStereoAudioOutput(player);
+                  if (context.mounted) Navigator.pop(context);
+                },
+              ),
             ...tracks.asMap().entries.map(
               (entry) => ListTile(
                 title: Text(
@@ -2873,9 +2897,10 @@ class _PlayerOptions extends StatelessWidget {
                       : 'Embedded · ${entry.value.codec}',
                 ),
                 leading: const Icon(Icons.audiotrack),
-                onTap: () {
-                  player.setAudioTrack(entry.value);
-                  Navigator.pop(context);
+                onTap: () async {
+                  await player.setAudioTrack(entry.value);
+                  await _restoreStereoAudioOutput(player);
+                  if (context.mounted) Navigator.pop(context);
                 },
               ),
             ),

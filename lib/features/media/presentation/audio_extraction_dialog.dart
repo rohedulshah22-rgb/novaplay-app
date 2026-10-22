@@ -82,9 +82,17 @@ Future<void> showAudioExtractionDialog(
         },
       );
     },
-  );
+  });
 
   if (!context.mounted) return;
+  if (failure == null && output != null) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('MP3 saved to Music/NovaPlay')),
+      );
+    return;
+  }
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(

@@ -321,6 +321,7 @@ class MainActivity : AudioServiceFragmentActivity() {
             return
         }
         executor.execute {
+            var directDeleted = false
             if (!path.isNullOrBlank() && !path.startsWith("content://")) {
                 val file = File(path)
                 if (!file.exists()) {
@@ -330,9 +331,8 @@ class MainActivity : AudioServiceFragmentActivity() {
                 try {
                     file.delete()
                     if (!file.exists()) {
+                        directDeleted = true
                         MediaScannerConnection.scanFile(this, arrayOf(path), null, null)
-                        runOnUiThread { result.success(true) }
-                        return@execute
                     }
                 } catch (_: SecurityException) {
                     // Continue with the MediaStore consent flow below.
@@ -359,7 +359,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                 for (uri in targetUris) {
                     deleted += contentResolver.delete(uri, null, null)
                 }
-                if (deleted == 0 && requestConsent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetUris.isNotEmpty()) {
+                if (deleted == 0 && !directDeleted && requestConsent && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && targetUris.isNotEmpty()) {
                     runOnUiThread {
                         requestDeleteAuthorization(
                             targetUris = targetUris.toList(),
@@ -373,7 +373,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                     val file = File(path)
                     if (file.exists() && file.delete()) deleted = 1
                 }
-                if (deleted == 0) {
+                if (deleted == 0 && !directDeleted) {
                     runOnUiThread {
                         result.error("NOT_FOUND", "Media file was not found", null)
                     }
@@ -790,7 +790,7 @@ class MainActivity : AudioServiceFragmentActivity() {
         ) { _, _ -> scanFinished.countDown() }
         // Media indexing is best-effort: never keep the extraction result pending
         // if Android fails to deliver its scan callback.
-        scanFinished.await(5, TimeUnit.SECONDS)
+        scanFinished.await(3, TimeUnit.SECONDS)
         return output.absolutePath
     }
 

@@ -69,7 +69,11 @@ class AudioExtractionService {
                   'publishAudio',
                   {'tempPath': outputPath, 'displayName': '$safeName.mp3'},
                 )
-                .timeout(const Duration(seconds: 20));
+                .timeout(const Duration(seconds: 10));
+            if (published == null || published.isEmpty) {
+              throw StateError('The published Music/NovaPlay path was empty.');
+            }
+            onProgress?.call(1.0);
             if (!complete.isCompleted) complete.complete(published);
           } catch (error, stackTrace) {
             if (!complete.isCompleted) complete.completeError(error, stackTrace);
@@ -79,7 +83,7 @@ class AudioExtractionService {
         (statistics) {
           if (durationSeconds == null || durationSeconds <= 0) return;
           final progress = (statistics.getTime() / 1000 / durationSeconds)
-              .clamp(0.0, 0.98)
+              .clamp(0.0, 0.99)
               .toDouble();
           onProgress?.call(progress);
         },

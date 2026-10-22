@@ -673,13 +673,29 @@ class _Header extends StatelessWidget {
       ),
 
       const SizedBox(width: 11),
-      const Text(
-        'NovaPlay',
-        style: TextStyle(
-          fontWeight: FontWeight.w900,
-          fontSize: 20,
-          letterSpacing: -.8,
-        ),
+      const Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(
+            'NovaPlay',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 20,
+              letterSpacing: -.8,
+            ),
+          ),
+          SizedBox(width: 6),
+          Text(
+            'v1.0.5',
+            style: TextStyle(
+              color: NovaColors.muted,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
       const Spacer(),
       IconButton(
