@@ -688,7 +688,7 @@ class _Header extends StatelessWidget {
           ),
           SizedBox(width: 6),
           Text(
-            'v1.0.8',
+            'v1.0.9',
             style: TextStyle(
               color: NovaColors.muted,
               fontSize: 10,

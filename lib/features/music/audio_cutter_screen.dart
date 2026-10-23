@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../core/tool_notification_service.dart';
 import 'audio_cutter_service.dart';
 import 'music_audio_service.dart';
 
@@ -114,6 +115,10 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
           _result = result;
           _working = false;
         });
+        await ToolNotificationService.show(
+          title: 'Audio Cutter Complete ✂️',
+          body: 'Trimmed audio is ready: ${Uri.file(result.path).pathSegments.last}',
+        );
         await _showTrimSuccess(result);
       }
     } catch (error) {
@@ -203,6 +208,11 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
     try {
       await audioCutterService.saveToMusic(result, title: trimmedName);
       if (mounted) {
+        await ToolNotificationService.show(
+          title: 'Audio Cutter Complete ✂️',
+          body: 'Trimmed audio is ready: ${_savedClipName(trimmedName)}',
+        );
+        if (!mounted) return;
         _message('Saved to Music/NovaPlay');
         Navigator.of(context).pop(true);
       }
@@ -222,7 +232,19 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
     }
     try {
       await action(_result!);
-      if (mounted) _message('$label completed.');
+      if (mounted) {
+        if (label == 'Ringtone' ||
+            label == 'Notification tone' ||
+            label == 'Alarm tone') {
+          await ToolNotificationService.show(
+            title: 'Audio Cutter Complete ✂️',
+            body:
+                'Trimmed audio is ready: ${Uri.file(_result!.path).pathSegments.last}',
+          );
+        }
+        if (!mounted) return;
+        _message('$label completed.');
+      }
     } catch (error) {
       if (mounted) _message('$label failed: $error');
     }
@@ -231,6 +253,19 @@ class _AudioCutterScreenState extends State<AudioCutterScreen> {
   void _message(String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _savedClipName(String name) {
+    final withoutExtension = name.replaceFirst(
+      RegExp(r'\.m4a$', caseSensitive: false),
+      '',
+    );
+    final safeName = withoutExtension.replaceAll(
+      RegExp(r'[^A-Za-z0-9._-]+'),
+      '_',
+    );
+    final baseName = safeName.isEmpty ? 'NovaPlay_Audio' : safeName;
+    return '$baseName.m4a';
   }
 
   @override

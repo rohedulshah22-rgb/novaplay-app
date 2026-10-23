@@ -128,12 +128,7 @@ class AiSubtitleService {
       return _captionForSourceCaption(episodeCaption, language);
     }
 
-    if (!isConfigured) {
-      return const AiSubtitleResult(
-        statusMessage:
-            'No caption found. Configure a speech endpoint or episode subtitle relay for AI CC.',
-      );
-    }
+    if (!isConfigured) return const AiSubtitleResult();
     if (sourcePath.startsWith('content://')) {
       return const AiSubtitleResult(
         statusMessage:
@@ -155,9 +150,7 @@ class AiSubtitleService {
     try {
       final transcript = await _transcribe(audioFile, language);
       if (transcript.trim().isEmpty) {
-        return const AiSubtitleResult(
-          statusMessage: 'No speech was detected in this audio segment.',
-        );
+        return const AiSubtitleResult();
       }
       final translated = await _translate(transcript, language);
       final text = translated.trim().isEmpty
@@ -379,11 +372,16 @@ class AiSubtitleService {
     Duration position,
   ) async {
     if (_subtitleSearchEndpoint.isEmpty) return null;
-    final file = await _fetchEpisodeSubtitle(sourcePath);
-    return file == null ? null : _parseCaptionFile(file, position);
+    try {
+      final file = await _fetchEpisodeSubtitle(sourcePath);
+      return file == null ? null : _parseCaptionFile(file, position);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<File?> _fetchEpisodeSubtitle(String sourcePath) async {
+    if (_subtitleSearchEndpoint.isEmpty) return null;
     if (_episodeSubtitleFiles.containsKey(sourcePath)) {
       return _episodeSubtitleFiles[sourcePath];
     }

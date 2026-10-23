@@ -7,11 +7,14 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/tool_notification_service.dart';
+
 class AudioExtractionService {
   const AudioExtractionService();
 
   static const _mediaChannel = MethodChannel('com.novaplay/media');
-  static const _extractionTimeout = Duration(minutes: 10);
+  static const _minimumExtractionTimeout = Duration(minutes: 10);
+  static const _unknownDurationTimeout = Duration(minutes: 30);
 
   Future<String?> extractToMusic({
     required String sourcePath,
@@ -25,6 +28,12 @@ class AudioExtractionService {
     final durationSeconds = duration == null || duration <= Duration.zero
         ? null
         : duration.inMilliseconds / 1000;
+    final durationBasedTimeout = duration == null || duration <= Duration.zero
+        ? _unknownDurationTimeout
+        : duration * 2 + const Duration(minutes: 5);
+    final extractionTimeout = durationBasedTimeout < _minimumExtractionTimeout
+        ? _minimumExtractionTimeout
+        : durationBasedTimeout;
     final command = [
       '-y',
       '-i',
@@ -42,18 +51,20 @@ class AudioExtractionService {
     final complete = Completer<String?>();
     Timer? timeout;
     try {
-      timeout = Timer(_extractionTimeout, () {
+      timeout = Timer(extractionTimeout, () {
         if (!complete.isCompleted) {
           complete.completeError(
-            TimeoutException('Audio extraction timed out', _extractionTimeout),
+            TimeoutException('Audio extraction timed out', extractionTimeout),
           );
         }
       });
       await FFmpegKit.executeAsync(
         command,
         (session) async {
+          if (complete.isCompleted) return;
           try {
             final returnCode = await session.getReturnCode();
+            if (complete.isCompleted) return;
             if (!ReturnCode.isSuccess(returnCode)) {
               final output = await session.getOutput() ?? '';
               throw StateError(
@@ -73,7 +84,15 @@ class AudioExtractionService {
             if (published == null || published.isEmpty) {
               throw StateError('The published Music/NovaPlay path was empty.');
             }
-            onProgress?.call(1.0);
+            if (complete.isCompleted) return;
+            await ToolNotificationService.show(
+              title: 'Video to MP3 Complete 🎵',
+              body: 'Audio generated successfully: $safeName.mp3',
+            );
+            if (complete.isCompleted) return;
+            try {
+              onProgress?.call(1.0);
+            } catch (_) {}
             if (!complete.isCompleted) complete.complete(published);
           } catch (error, stackTrace) {
             if (!complete.isCompleted) complete.completeError(error, stackTrace);
@@ -81,11 +100,14 @@ class AudioExtractionService {
         },
         null,
         (statistics) {
+          if (complete.isCompleted) return;
           if (durationSeconds == null || durationSeconds <= 0) return;
           final progress = (statistics.getTime() / 1000 / durationSeconds)
               .clamp(0.0, 0.99)
               .toDouble();
-          onProgress?.call(progress);
+          try {
+            onProgress?.call(progress);
+          } catch (_) {}
         },
       );
       return await complete.future;

@@ -1,6 +1,9 @@
 package com.novaplay.novaplay
 
 import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PictureInPictureParams
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -41,6 +44,7 @@ class MainActivity : AudioServiceFragmentActivity() {
         private const val PIP_ACTION = "com.novaplay.PIP_ACTION"
         private const val ACTION_PLAY_PAUSE = "play_pause"
         private const val ACTION_CLOSE = "close"
+        private const val TOOL_NOTIFICATION_CHANNEL = "com.novaplay.media_tools"
     }
 
     private val playerChannelName = "com.novaplay/player"
@@ -105,11 +109,75 @@ class MainActivity : AudioServiceFragmentActivity() {
                 "queryVideos" -> queryVideos(result)
                 "cacheThumbnail" -> cacheThumbnail(call, result)
                 "publishAudio" -> publishAudio(call, result)
+                "showToolNotification" -> showToolNotification(call, result)
                 "moveToVault" -> moveToVault(call, result)
                 "restoreFromVault" -> restoreFromVault(call, result)
                 "deleteMedia" -> deleteMedia(call, result)
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun showToolNotification(call: MethodCall, result: MethodChannel.Result) {
+        val title = call.argument<String>("title")?.trim()
+        val body = call.argument<String>("body")?.trim()
+        if (title.isNullOrEmpty() || body.isNullOrEmpty()) {
+            result.error("INVALID_ARGUMENT", "title and body are required", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            result.success(false)
+            return
+        }
+
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        TOOL_NOTIFICATION_CHANNEL,
+                        "NovaPlay media tools",
+                        NotificationManager.IMPORTANCE_HIGH,
+                    ).apply {
+                        description = "Completion alerts for audio extraction and trimming"
+                        enableVibration(true)
+                    },
+                )
+            }
+            val notificationId = if (title.contains("Video to MP3", ignoreCase = true)) 73101 else 73102
+            val openAppIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val contentIntent = PendingIntent.getActivity(
+                this,
+                notificationId,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, TOOL_NOTIFICATION_CHANNEL)
+            } else {
+                Notification.Builder(this)
+            }
+            manager.notify(
+                notificationId,
+                builder
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle(title)
+                    .setContentText(body)
+                    .setStyle(Notification.BigTextStyle().bigText(body))
+                    .setContentIntent(contentIntent)
+                    .setAutoCancel(true)
+                    .setCategory(Notification.CATEGORY_STATUS)
+                    .setPriority(Notification.PRIORITY_HIGH)
+                    .build(),
+            )
+            result.success(true)
+        } catch (error: Exception) {
+            result.error("TOOL_NOTIFICATION_FAILED", error.message, null)
         }
     }
 

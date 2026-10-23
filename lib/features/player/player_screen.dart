@@ -84,6 +84,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   final pgsSubtitleService = PgsSubtitleService();
   final FlutterTts _dubbingTts = FlutterTts();
   Timer? _subtitleTimer;
+  Timer? _subtitleGeneratingTimer;
   bool aiDubbingEnabled = false;
   String? _lastDubbedCaption;
   double? _dubbingRestorationVolume;
@@ -433,7 +434,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _lastSubtitleCueText = null;
     await player.setSubtitleTrack(track);
     await _configureNativeSubtitleOutput(
-      visible: !aiSubtitlesEnabled || _selectedSubtitleIsBitmap,
+      visible: !aiSubtitlesEnabled,
     );
     if (_selectedSubtitleIsPgs) {
       unawaited(_loadPgsSubtitle(currentStreamIndex));
@@ -524,11 +525,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (announce && mounted) {
         _showHud('Auto subtitle loaded', Icons.subtitles_rounded);
       }
-    } catch (error) {
-      if (mounted && _currentFile.path == sourcePath) {
-        _showAiSubtitleNotice('Automatic subtitle lookup failed: $error');
-      }
-    }
+    } catch (_) {}
   }
 
   void _resetCurrentItemSubtitleState() {
@@ -884,8 +881,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         orElse: () => AiSubtitlePreferences.languages.first,
       );
 
-  Future<void> _configureNativeSubtitleOutput({required bool visible}) async {
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+  Future<void> _configureNativeSubtitleOutput({
+    required bool visible,
+    Duration delay = const Duration(milliseconds: 300),
+  }) async {
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
     final nativePlayer = player.platform as dynamic;
     final properties = {
       'sub-visibility': visible ? 'yes' : 'no',
@@ -989,7 +989,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       } else if (active == null) {
         unawaited(_loadAutomaticSubtitleFallback(announce: true));
       }
-    } catch (error) {
+    } catch (_) {
       if (!mounted ||
           _currentFile.path != sourcePath ||
           _selectedNativeSubtitleTrack.id != trackId ||
@@ -1000,9 +1000,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _pgsCues = const [];
         _activePgsCue = null;
       });
-      _showAiSubtitleNotice(
-        'PGS bitmap fallback unavailable; native subtitle rendering remains enabled. $error',
-      );
       unawaited(_loadAutomaticSubtitleFallback(announce: true));
     }
   }
@@ -1034,31 +1031,52 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
   }
 
+  void _startSubtitleGeneratingIndicator() {
+    if (!mounted) return;
+    _subtitleGeneratingTimer?.cancel();
+    setState(() => _subtitleGenerating = true);
+    _subtitleGeneratingTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted && _subtitleGenerating) {
+        setState(() => _subtitleGenerating = false);
+      }
+    });
+  }
+
+  void _hideSubtitleGeneratingIndicator() {
+    _subtitleGeneratingTimer?.cancel();
+    _subtitleGeneratingTimer = null;
+    if (mounted && _subtitleGenerating) {
+      setState(() => _subtitleGenerating = false);
+    }
+  }
+
   Future<void> _setAiSubtitlesEnabled(bool enabled) async {
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = enabled;
       if (!enabled) {
         _activeCaption = null;
-        _subtitleGenerating = false;
-      } else {
-        _subtitleGenerating = true;
       }
     });
     if (enabled) {
-      // Keep the native track active for live cue delivery; configure mpv to
-      // hide text rendering but preserve bitmap rendering when applicable.
+      _startSubtitleGeneratingIndicator();
+    } else {
+      _hideSubtitleGeneratingIndicator();
+    }
+    if (enabled) {
+      // Keep the selected track active for cue extraction, but hide raw output.
       _lastSubtitleCueText = null;
       _hasReceivedSubtitleCue = false;
+      await _configureNativeSubtitleOutput(
+        visible: false,
+        delay: Duration.zero,
+      );
     } else {
       _subtitleRefreshAfterCurrent = false;
     }
     await AiSubtitlePreferences.save(enabled: enabled);
     if (!mounted) return;
     if (enabled) {
-      await _configureNativeSubtitleOutput(
-        visible: _selectedSubtitleIsBitmap,
-      );
       _startSubtitleLoop();
       _showHud('AI CC on', Icons.closed_caption_rounded);
     } else {
@@ -1074,8 +1092,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _lastDubbedCaption = null;
     setState(() {
       aiSubtitleLanguage = language;
-      if (aiSubtitlesEnabled) _subtitleGenerating = true;
     });
+    if (aiSubtitlesEnabled) _startSubtitleGeneratingIndicator();
     await AiSubtitlePreferences.save(language: language);
     if (aiSubtitlesEnabled) {
       _startSubtitleLoop();
@@ -1110,7 +1128,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     }
     _subtitleRequestInFlight = true;
     if (mounted && aiSubtitlesEnabled) {
-      setState(() => _subtitleGenerating = true);
+      _startSubtitleGeneratingIndicator();
     }
     try {
       final pgsCue = aiSubtitlesEnabled && _selectedSubtitleIsPgs
@@ -1151,10 +1169,6 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           );
       }
       if (!mounted || (!aiSubtitlesEnabled && !aiDubbingEnabled)) return;
-      if (_selectedSubtitleIsPgs &&
-          pgsCue?.startMs == _activePgsCue?.startMs) {
-        await _configureNativeSubtitleOutput(visible: result.caption == null);
-      }
       if (result.caption != null) {
         final caption = result.caption!;
         if (aiSubtitlesEnabled) {
@@ -1162,12 +1176,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             _activeCaption = caption;
             _subtitleGenerating = false;
           });
+          _subtitleGeneratingTimer?.cancel();
+          _subtitleGeneratingTimer = null;
         }
         if (aiDubbingEnabled) unawaited(_speakDubbingCaption(caption));
-      } else if (aiSubtitlesEnabled) {
-        _showAiSubtitleNotice(
-          result.statusMessage ?? 'No subtitle cue or speech was detected.',
-        );
       }
     } on AiSubtitleException catch (error) {
       if (aiSubtitlesEnabled) _showAiSubtitleNotice(error.message);
@@ -1182,7 +1194,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           (aiSubtitlesEnabled || aiDubbingEnabled);
       _subtitleRefreshAfterCurrent = false;
       if (!refreshAgain && mounted && aiSubtitlesEnabled && _activeCaption == null) {
-        setState(() => _subtitleGenerating = false);
+        _hideSubtitleGeneratingIndicator();
       }
       if (refreshAgain) unawaited(_requestSubtitle());
     }
@@ -1194,9 +1206,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _lastSubtitleCueText = null;
     _embeddedSubtitleText = null;
     _activeCaption = null;
-    if (mounted && aiSubtitlesEnabled) {
-      setState(() => _subtitleGenerating = true);
-    }
+    if (mounted && aiSubtitlesEnabled) _startSubtitleGeneratingIndicator();
     if (_subtitleRequestInFlight) {
       _subtitleRefreshAfterCurrent = true;
     } else {
@@ -1704,6 +1714,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _statusTimer?.cancel();
     _seekIndicatorTimer?.cancel();
     _subtitleTimer?.cancel();
+    _subtitleGeneratingTimer?.cancel();
     _resumeSaveTimer?.cancel();
     _dubbingRequestId++;
     unawaited(_dubbingTts.stop());
@@ -1833,7 +1844,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         builder: (context, snapshot) {
           final position = snapshot.data ?? Duration.zero;
           final cue = _pgsCueAt(position);
-          if (cue == null) return const SizedBox.expand();
+          if (aiSubtitlesEnabled || cue == null) {
+            return const SizedBox.expand();
+          }
           final caption = _activeCaption;
           final translatedCaptionVisible =
               aiSubtitlesEnabled &&
@@ -2555,13 +2568,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               selected: selectedAudioTrackId == entry.value.id,
               selectedTileColor: NovaColors.cyan.withValues(alpha: .14),
               leading: const Icon(Icons.audiotrack_rounded, color: NovaColors.cyan),
-              title: Text(trackLanguageLabel(
-                title: entry.value.title,
-                language: entry.value.language,
-              )),
+              title: Text(
+                'Track ${entry.key + 1} • ${trackLanguageLabel(title: entry.value.title, language: entry.value.language)}',
+              ),
               subtitle: Text(entry.value.codec == null
-                  ? 'Audio track ${entry.key + 1}'
-                  : 'Embedded · ${entry.value.codec}'),
+                  ? 'Embedded audio'
+                  : 'Embedded audio · ${entry.value.codec}'),
               trailing: selectedAudioTrackId == entry.value.id
                   ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
                   : null,
@@ -2634,11 +2646,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 color: NovaColors.violet,
               ),
               title: Text(_subtitleTrackLabel(entry.value, index: entry.key)),
-              subtitle: Text(
-                entry.value.codec == null
-                    ? 'Embedded · ID ${entry.value.id}'
-                    : 'Embedded · ID ${entry.value.id} · ${entry.value.codec}',
-              ),
+              subtitle: Text(_subtitleTrackDescription(entry.value)),
               trailing: entry.value.id == player.state.track.subtitle.id
                   ? const Icon(Icons.check_rounded, color: NovaColors.cyan)
                   : null,
@@ -2756,11 +2764,15 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       title: track.title,
       language: track.language,
     );
-    final title = track.title?.trim();
-    final titleLabel = title == null || title.isEmpty ? '' : ' · $title';
     final position = index == null ? 'Track' : 'Track ${index + 1}';
-    final codec = track.codec == null ? '' : ' · ${track.codec}';
-    return '$position · ID ${track.id} · $language$titleLabel$codec';
+    return '$position • $language';
+  }
+
+  String _subtitleTrackDescription(SubtitleTrack track) {
+    if (_isPgsSubtitle(track)) return 'Embedded Blu-ray Subtitle (PGS)';
+    final codec = track.codec?.trim();
+    if (codec == null || codec.isEmpty) return 'Embedded Subtitle';
+    return 'Embedded Subtitle (${codec.toUpperCase()})';
   }
 
   Future<void> _pickSubtitle() async {
@@ -2791,7 +2803,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _automaticSubtitleFallbackAttempted = true;
     await player.setSubtitleTrack(externalTrack);
     await _configureNativeSubtitleOutput(
-      visible: !aiSubtitlesEnabled || _selectedSubtitleIsBitmap,
+      visible: !aiSubtitlesEnabled,
     );
     if (mounted) {
       _showHud('External subtitles selected', Icons.subtitles_rounded);
