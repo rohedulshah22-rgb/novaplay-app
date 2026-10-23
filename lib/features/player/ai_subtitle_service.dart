@@ -92,6 +92,7 @@ class AiSubtitleService {
     required AiSubtitleLanguage language,
     String? sourceText,
     int audioTrackIndex = 0,
+    int? subtitleTrackIndex,
   }) async {
     final directText = sourceText?.trim();
     if (directText != null && directText.isNotEmpty) {
@@ -108,7 +109,13 @@ class AiSubtitleService {
       return _captionForSourceCaption(localCaption, language);
     }
 
-    final embeddedCaption = await _readEmbeddedCaption(sourcePath, position);
+    final embeddedCaption = subtitleTrackIndex == null
+        ? null
+        : await _readEmbeddedCaption(
+            sourcePath,
+            position,
+            subtitleTrackIndex: subtitleTrackIndex,
+          );
     if (embeddedCaption != null) {
       return _captionForSourceCaption(embeddedCaption, language);
     }
@@ -354,8 +361,8 @@ class AiSubtitleService {
     if (sourcePath.startsWith('content://')) return null;
     final basePath = path.withoutExtension(sourcePath);
     for (final extension in [
-      '.srt', '.en.srt', '.eng.srt', '.english.srt',
-      '.vtt', '.en.vtt', '.eng.vtt', '.english.vtt',
+      '.en.srt', '.eng.srt', '.english.srt', '.srt',
+      '.en.vtt', '.eng.vtt', '.english.vtt', '.vtt',
       '.ass', '.ssa',
     ]) {
       final file = File('$basePath$extension');
@@ -382,11 +389,22 @@ class AiSubtitleService {
     }
     final filename = path.basename(Uri.parse(sourcePath).path);
     final title = path.basenameWithoutExtension(filename).trim();
-    final episode = RegExp(
-      r'(?:s\s*\d{1,2}\s*e\s*\d{1,3}|season\s*\d+\s*episode\s*\d+|episode\s*\d+)',
+    final episodeMatch = RegExp(
+      r'(?:s\s*0*(\d{1,2})\s*e\s*0*(\d{1,3})|season\s*0*(\d+)\s*episode\s*0*(\d+)|0*(\d{1,2})x0*(\d{1,3})|episode\s*0*(\d+))',
       caseSensitive: false,
     ).firstMatch(title);
-    if (episode == null) {
+    if (episodeMatch == null) {
+      _episodeSubtitleFiles[sourcePath] = null;
+      return null;
+    }
+    final seasonNumber = episodeMatch.group(1) ??
+        episodeMatch.group(3) ??
+        episodeMatch.group(5);
+    final episodeNumber = episodeMatch.group(2) ??
+        episodeMatch.group(4) ??
+        episodeMatch.group(6) ??
+        episodeMatch.group(7);
+    if (episodeNumber == null) {
       _episodeSubtitleFiles[sourcePath] = null;
       return null;
     }
@@ -394,7 +412,9 @@ class AiSubtitleService {
       queryParameters: {
         'query': title,
         'filename': filename,
-        'episode': episode.group(0)!,
+        'episode': episodeMatch.group(0)!,
+        if (seasonNumber != null) 'season_number': seasonNumber,
+        'episode_number': episodeNumber,
         'language': 'en',
       },
     );
@@ -436,35 +456,97 @@ class AiSubtitleService {
 
   Future<AiCaption?> _readEmbeddedCaption(
     String sourcePath,
-    Duration position,
-  ) async {
+    Duration position, {
+    required int subtitleTrackIndex,
+  }) async {
     if (sourcePath.startsWith('content://')) return null;
-    final file = await _extractEmbeddedSubtitleFile(sourcePath);
+    final file = await _extractEmbeddedSubtitleFile(
+      sourcePath,
+      subtitleTrackIndex,
+    );
     if (file == null) return null;
     return _parseCaptionFile(file, position);
   }
 
-  Future<File?> _extractEmbeddedSubtitleFile(String sourcePath) async {
-    if (_embeddedSubtitleFiles.containsKey(sourcePath)) {
-      return _embeddedSubtitleFiles[sourcePath];
+  Future<List<AiCaption>> extractEmbeddedTextCues({
+    required String sourcePath,
+    required int subtitleTrackIndex,
+  }) async {
+    if (sourcePath.startsWith('content://')) return const [];
+    final file = await _extractEmbeddedSubtitleFile(
+      sourcePath,
+      subtitleTrackIndex,
+    );
+    return file == null ? const [] : _parseAllCaptionFile(file);
+  }
+
+  Future<File?> findAutomaticSubtitleFile(String sourcePath) async {
+    if (!sourcePath.startsWith('content://')) {
+      final basePath = path.withoutExtension(sourcePath);
+      for (final extension in [
+        '.en.srt', '.eng.srt', '.english.srt', '.srt',
+        '.en.vtt', '.eng.vtt', '.english.vtt', '.vtt',
+        '.ass', '.ssa',
+      ]) {
+        final file = File('$basePath$extension');
+        if (await file.exists()) return file;
+      }
     }
-    if (!_embeddedExtractionAttempts.add(sourcePath)) return null;
+    return _fetchEpisodeSubtitle(sourcePath);
+  }
+
+  Future<File?> _extractEmbeddedSubtitleFile(
+    String sourcePath,
+    int subtitleTrackIndex,
+  ) async {
+    final cacheKey = '$sourcePath#$subtitleTrackIndex';
+    if (_embeddedSubtitleFiles.containsKey(cacheKey)) {
+      return _embeddedSubtitleFiles[cacheKey];
+    }
+    if (!_embeddedExtractionAttempts.add(cacheKey)) return null;
     final directory = await getTemporaryDirectory();
     final output = File(
       path.join(
         directory.path,
-        'novaplay_embedded_${sourcePath.hashCode.abs()}.srt',
+        'novaplay_embedded_${sourcePath.hashCode.abs()}_$subtitleTrackIndex.srt',
       ),
     );
     final command =
-        '-y -i ${_quote(sourcePath)} -map 0:s:0 -c:s srt ${_quote(output.path)}';
+        '-y -i ${_quote(sourcePath)} -map 0:s:$subtitleTrackIndex '
+        '-c:s srt ${_quote(output.path)}';
     final session = await FFmpegKit.execute(command);
     final code = await session.getReturnCode();
     final file = ReturnCode.isSuccess(code) && await output.exists()
         ? output
         : null;
-    _embeddedSubtitleFiles[sourcePath] = file;
+    _embeddedSubtitleFiles[cacheKey] = file;
     return file;
+  }
+
+  Future<List<AiCaption>> _parseAllCaptionFile(File file) async {
+    final lines = await file.readAsLines();
+    final captions = <AiCaption>[];
+    for (var index = 0; index < lines.length; index++) {
+      final match = _timestampPattern.firstMatch(lines[index]);
+      if (match == null) continue;
+      final start = _parseTimestamp(match.group(1)!);
+      final end = _parseTimestamp(match.group(2)!);
+      final text = <String>[];
+      for (var next = index + 1; next < lines.length; next++) {
+        final line = lines[next].trim();
+        if (line.isEmpty || _timestampPattern.hasMatch(line)) break;
+        if (!RegExp(r'^\d+$').hasMatch(line)) text.add(line);
+      }
+      final value = text
+          .join('\n')
+          .replaceAll(RegExp(r'<[^>]+>'), '')
+          .replaceAll(r'\N', '\n')
+          .trim();
+      if (value.isNotEmpty && end > start) {
+        captions.add(AiCaption(text: value, start: start, end: end));
+      }
+    }
+    return List<AiCaption>.unmodifiable(captions);
   }
 
   Future<AiCaption?> _parseCaptionFile(File file, Duration position) async {
