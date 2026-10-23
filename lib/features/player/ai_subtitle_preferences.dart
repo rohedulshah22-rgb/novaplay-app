@@ -24,10 +24,10 @@ class AiSubtitlePreferences {
 
   static Future<AiSubtitlePreferenceValues> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedLanguage = prefs.getString(languageKey) ?? 'English';
+    final savedLanguage = prefs.getString(languageKey) ?? 'Bengali';
     final language = languages.any((item) => item.label == savedLanguage)
         ? savedLanguage
-        : 'English';
+        : 'Bengali';
     return AiSubtitlePreferenceValues(
       enabled: prefs.getBool(enabledKey) ?? false,
       aiDubbingEnabled: prefs.getBool(aiDubbingEnabledKey) ?? false,

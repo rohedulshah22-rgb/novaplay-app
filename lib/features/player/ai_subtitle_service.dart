@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:ffmpeg_kit_audio_flutter/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_audio_flutter/return_code.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -37,6 +39,52 @@ class AiSubtitleService {
   final Map<String, File?> _episodeSubtitleFiles = {};
 
   bool get isConfigured => _endpoint.isNotEmpty || _apiKey.isNotEmpty;
+
+  Future<AiSubtitleResult> recognizeBitmapCue({
+    required Uint8List pngBytes,
+    required Duration start,
+    required Duration end,
+    required AiSubtitleLanguage language,
+  }) async {
+    final directory = await getTemporaryDirectory();
+    final file = File(
+      path.join(
+        directory.path,
+        'novaplay_pgs_ocr_${DateTime.now().microsecondsSinceEpoch}.png',
+      ),
+    );
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+    try {
+      await file.writeAsBytes(pngBytes, flush: true);
+      final recognized = await recognizer.processImage(
+        InputImage.fromFilePath(file.path),
+      );
+      final sourceText = recognized.text.trim();
+      if (sourceText.isEmpty) {
+        return const AiSubtitleResult(
+          statusMessage: 'No readable text was found in the PGS subtitle.',
+        );
+      }
+      final translated = await _translateSafely(sourceText, language);
+      return AiSubtitleResult(
+        caption: AiCaption(
+          text: translated.trim().isEmpty ? sourceText : translated.trim(),
+          start: start,
+          end: end,
+        ),
+        usedLocalFallback: true,
+      );
+    } catch (error) {
+      return AiSubtitleResult(
+        statusMessage: 'On-device PGS OCR failed: $error',
+      );
+    } finally {
+      await recognizer.close();
+      try {
+        await file.delete();
+      } catch (_) {}
+    }
+  }
 
   Future<AiSubtitleResult> recognizeAndTranslate({
     required String sourcePath,
