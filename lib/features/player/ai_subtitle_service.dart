@@ -267,51 +267,59 @@ class AiSubtitleService {
     if (language.code == 'en' || transcript.trim().isEmpty) return transcript;
 
     if (_translationEndpoint.isNotEmpty) {
-      final response = await _client.post(
-        Uri.parse(_translationEndpoint),
-        headers: const {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'text': transcript,
-          'target_language': language.code,
-          'target_language_name': language.label,
-        }),
-      );
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final value = _readText(_decodeObject(response.body));
-        if (value != null && value.trim().isNotEmpty) return value;
+      try {
+        final response = await _client.post(
+          Uri.parse(_translationEndpoint),
+          headers: const {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'text': transcript,
+            'target_language': language.code,
+            'target_language_name': language.label,
+          }),
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final value = _readText(_decodeObject(response.body));
+          if (value != null && value.trim().isNotEmpty) return value;
+        }
+      } catch (_) {
+        // Continue to another translator if this optional endpoint is offline.
       }
     }
 
     if (_apiKey.isNotEmpty) {
-      final response = await _client.post(
-        Uri.parse('https://api.openai.com/v1/chat/completions'),
-        headers: {
-          'Authorization': 'Bearer $_apiKey',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': _translationModel,
-          'temperature': 0,
-          'messages': [
-            {
-              'role': 'system',
-              'content':
-                  'Translate spoken dialogue into ${language.label}. '
-                  'Return only the translation, with no explanations.',
-            },
-            {'role': 'user', 'content': transcript},
-          ],
-        }),
-      );
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final json = _decodeObject(response.body);
-        final choices = json['choices'];
-        if (choices is List && choices.isNotEmpty && choices.first is Map) {
-          final message = (choices.first as Map)['message'];
-          if (message is Map && message['content'] is String) {
-            return message['content'] as String;
+      try {
+        final response = await _client.post(
+          Uri.parse('https://api.openai.com/v1/chat/completions'),
+          headers: {
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': _translationModel,
+            'temperature': 0,
+            'messages': [
+              {
+                'role': 'system',
+                'content':
+                    'Translate spoken dialogue into ${language.label}. '
+                    'Return only the translation, with no explanations.',
+              },
+              {'role': 'user', 'content': transcript},
+            ],
+          }),
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final json = _decodeObject(response.body);
+          final choices = json['choices'];
+          if (choices is List && choices.isNotEmpty && choices.first is Map) {
+            final message = (choices.first as Map)['message'];
+            if (message is Map && message['content'] is String) {
+              return message['content'] as String;
+            }
           }
         }
+      } catch (_) {
+        // Keep translation available through the keyless Google endpoint.
       }
     }
 

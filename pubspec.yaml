@@ -1,7 +1,7 @@
 name: novaplay
 description: A modern offline video player for Android.
 publish_to: "none"
-version: 1.1.0+10
+version: 1.1.1+11
 
 flutter_launcher_icons:
   android: true

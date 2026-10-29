@@ -241,40 +241,66 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   Future<void> _openMediaAndRestoreResume() async {
+    final history = await resumeRepository.readPlaybackHistory();
+    final savedPosition = _resumePositionFor(_currentFile, history);
     final playlist = Playlist(
-      _queue.map((item) => Media(item.path)).toList(growable: false),
+      _queue
+          .map((item) {
+            final start = _resumePositionFor(item, history);
+            return Media(
+              item.path,
+              start: start > Duration.zero ? start : null,
+            );
+          })
+          .toList(growable: false),
       index: _queueIndex,
     );
     await player.open(playlist, play: true);
     await player.setPlaylistMode(PlaylistMode.none);
     if (!mounted) return;
-    await _restoreResumeForCurrent(showFeedback: true);
+    await _restoreResumeForCurrent(
+      showFeedback: true,
+      savedPosition: savedPosition,
+    );
     await _autoSelectSubtitleForCurrentMedia(announce: true);
   }
 
-  Future<void> _restoreResumeForCurrent({required bool showFeedback}) async {
+  Duration _resumePositionFor(
+    VideoFile file,
+    Map<String, PlaybackHistoryEntry> history,
+  ) {
+    final entry = history[file.id];
+    if (entry?.finished == true) return Duration.zero;
+    final position = entry?.position ?? file.progress;
+    final storedDuration = entry?.totalDuration ?? Duration.zero;
+    final duration = storedDuration > Duration.zero
+        ? storedDuration
+        : file.duration;
+    if (position <= const Duration(seconds: 5) ||
+        (duration > Duration.zero &&
+            position.inMilliseconds * 100 >= duration.inMilliseconds * 95)) {
+      return Duration.zero;
+    }
+    return position;
+  }
+
+  Future<void> _restoreResumeForCurrent({
+    required bool showFeedback,
+    Duration? savedPosition,
+    bool forcePosition = false,
+  }) async {
     _resumeRestored = false;
-    final history = await resumeRepository.readPlaybackHistory();
-    final entry = history[_currentFile.id];
-    final resume = entry?.position ?? _currentFile.progress;
-    final duration = await _waitForMediaDuration();
-    final effectiveDuration = duration > Duration.zero
-        ? duration
-        : entry?.totalDuration ?? _currentFile.duration;
-    if (resume <= const Duration(seconds: 5) ||
-        (effectiveDuration > Duration.zero &&
-            resume.inMilliseconds * 100 >=
-                effectiveDuration.inMilliseconds * 95)) {
+    final resume = savedPosition ??
+        _resumePositionFor(
+          _currentFile,
+          await resumeRepository.readPlaybackHistory(),
+        );
+    if (resume <= const Duration(seconds: 2)) {
       _resumeRestored = true;
       return;
     }
 
-    // MediaKit may complete open() before the stream duration is populated.
-    // Pause, apply the saved position after readiness, then explicitly resume.
-    await player.pause();
-    await player.seek(resume);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    await player.play();
+    await _applyResumeSafetySeek(resume, forcePosition: forcePosition);
     _resumeRestored = true;
     if (!mounted || !showFeedback) return;
     final label = formatResumeTime(resume);
@@ -293,17 +319,29 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       );
   }
 
-  Future<Duration> _waitForMediaDuration() async {
-    final current = player.state.duration;
-    if (current > Duration.zero) return current;
-    try {
-      return await player.stream.duration
-          .firstWhere((duration) => duration > Duration.zero)
-          .timeout(const Duration(seconds: 8));
-    } on TimeoutException {
-      return player.state.duration;
-    } catch (_) {
-      return player.state.duration;
+  Future<void> _applyResumeSafetySeek(
+    Duration savedPosition, {
+    bool forcePosition = false,
+  }) async {
+    if (savedPosition <= const Duration(seconds: 2)) return;
+    var sawNonZeroPosition = false;
+    final positionSubscription = player.stream.position.listen((position) {
+      if (position > Duration.zero) sawNonZeroPosition = true;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await positionSubscription.cancel();
+    final currentPosition = player.state.position;
+    final positionDifferenceMs =
+        (currentPosition.inMilliseconds - savedPosition.inMilliseconds).abs();
+    final shouldSeek = forcePosition
+        ? positionDifferenceMs > const Duration(seconds: 2).inMilliseconds
+        : !sawNonZeroPosition && currentPosition == Duration.zero;
+    if (shouldSeek) {
+      try {
+        await player.seek(savedPosition);
+      } catch (_) {
+        // Native Media.start remains the primary resume path.
+      }
     }
   }
 
@@ -351,42 +389,37 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   SubtitleTrack _chooseDialogueSubtitleTrack(List<SubtitleTrack> tracks) {
-    final labels = tracks.map(_subtitleMetadata).toList(growable: false);
-    final fullDialoguePattern = RegExp(
-      r'full|dialog(?:ue)?|complete|normal subtitles|full subs',
-    );
     final explicitFull = <SubtitleTrack>[];
     final regular = <SubtitleTrack>[];
     for (var index = 0; index < tracks.length; index++) {
-      if (fullDialoguePattern.hasMatch(labels[index])) {
+      if (_isFullDialogueSubtitle(tracks[index])) {
         explicitFull.add(tracks[index]);
       } else if (!_isSignsOnlySubtitle(tracks[index])) {
         regular.add(tracks[index]);
       }
     }
     if (explicitFull.isNotEmpty) {
-      return explicitFull.firstWhere(
+      final englishFull = explicitFull
+          .where(_isEnglishSubtitleTrack)
+          .toList(growable: false);
+      final preferredFull = englishFull.isNotEmpty ? englishFull : explicitFull;
+      return preferredFull.firstWhere(
         (track) => track.isDefault == true,
-        orElse: () => explicitFull.first,
+        orElse: () => preferredFull.first,
       );
     }
 
     final eligible = regular.isEmpty ? tracks : regular;
-    final english = eligible.where((track) {
-      final language = (track.language ?? '').toLowerCase();
-      final label = _subtitleMetadata(track);
-      return language == 'en' ||
-          language == 'eng' ||
-          language.startsWith('en-') ||
-          label.contains('english');
-    }).toList(growable: false);
-    if (english.length > 1 &&
-        _isSignsOnlySubtitle(tracks.first)) {
-      return english.first;
-    }
-    if (english.length > 1 &&
-        _isBitmapSubtitle(english.first) &&
-        !_isBitmapSubtitle(english[1])) {
+    final english = eligible.where(_isEnglishSubtitleTrack).toList();
+    if (english.length > 1) {
+      final fullDialogue = english
+          .where((track) => !_isSignsOnlySubtitle(track))
+          .toList(growable: false);
+      if (fullDialogue.length < english.length && fullDialogue.isNotEmpty) {
+        return fullDialogue.first;
+      }
+      // When metadata only says "English" for both tracks, Blu-ray releases
+      // conventionally put signs/songs first and full dialogue second.
       return english[1];
     }
     if (english.isNotEmpty) {
@@ -404,6 +437,19 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String _subtitleMetadata(SubtitleTrack track) =>
       '${track.title ?? ''} ${track.language ?? ''} ${track.codec ?? ''}'
           .toLowerCase();
+
+  bool _isEnglishSubtitleTrack(SubtitleTrack track) {
+    final language = (track.language ?? '').toLowerCase();
+    final label = _subtitleMetadata(track);
+    return language == 'en' ||
+        language == 'eng' ||
+        language.startsWith('en-') ||
+        label.contains('english');
+  }
+
+  bool _isFullDialogueSubtitle(SubtitleTrack track) => RegExp(
+    r'full|dialog(?:ue)?|complete|normal subtitles|full subs',
+  ).hasMatch(_subtitleMetadata(track));
 
   bool _isSignsOnlySubtitle(SubtitleTrack track) => RegExp(
     r'signs?\s*(?:&|and|/|\+)\s*songs?|songs?\s*(?:&|and|/|\+)\s*signs?|signs? only|songs? only|forced only|forced subs?',
@@ -583,12 +629,16 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       final direction = offset > 0 ? 1 : -1;
       _showQueueIndicator(direction);
       _queueIndex = nextIndex;
+      _resumeRestored = false;
       _resetCurrentItemSubtitleState();
       if (mounted) setState(() {});
       await player.jump(nextIndex);
       await Future<void>.delayed(const Duration(milliseconds: 350));
       await _autoSelectSubtitleForCurrentMedia(announce: true);
-      await _restoreResumeForCurrent(showFeedback: false);
+      await _restoreResumeForCurrent(
+        showFeedback: false,
+        forcePosition: true,
+      );
     } finally {
       _queueTransitioning = false;
     }
@@ -879,6 +929,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     });
     if (aiDubbingEnabled) unawaited(_configureDubbingTts());
     if (aiSubtitlesEnabled || aiDubbingEnabled) {
+      if (aiSubtitlesEnabled) _startSubtitleGeneratingIndicator();
       _startSubtitleLoop();
     }
   }
@@ -1085,14 +1136,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _startSubtitleGeneratingIndicator() {
-    if (!mounted) return;
+    if (!mounted || _subtitleGenerating) return;
     _subtitleGeneratingTimer?.cancel();
     setState(() => _subtitleGenerating = true);
-    _subtitleGeneratingTimer = Timer(const Duration(seconds: 2), () {
-      if (mounted && _subtitleGenerating) {
-        setState(() => _subtitleGenerating = false);
-      }
-    });
+    _subtitleGeneratingTimer = null;
   }
 
   void _hideSubtitleGeneratingIndicator() {
@@ -1122,6 +1169,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       // Keep the selected track active for cue extraction, but hide raw output.
       _lastSubtitleCueText = null;
       _hasReceivedSubtitleCue = false;
+      _lastPgsOcrCueStartMs = null;
       await _configureNativeSubtitleOutput(
         visible: false,
         delay: Duration.zero,
@@ -1154,8 +1202,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _lastDubbedCaption = null;
     setState(() {
       aiSubtitleLanguage = language;
+      if (aiSubtitlesEnabled) _activeCaption = null;
     });
-    if (aiSubtitlesEnabled) _startSubtitleGeneratingIndicator();
+    if (aiSubtitlesEnabled) {
+      _lastPgsOcrCueStartMs = null;
+      _startSubtitleGeneratingIndicator();
+    }
     await AiSubtitlePreferences.save(language: language);
     if (aiSubtitlesEnabled) {
       _startSubtitleLoop();
@@ -1189,15 +1241,23 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       return;
     }
     _subtitleRequestInFlight = true;
-    if (mounted && aiSubtitlesEnabled) {
-      _startSubtitleGeneratingIndicator();
-    }
+    final pgsCue = aiSubtitlesEnabled && _selectedSubtitleIsPgs
+        ? _activePgsCue
+        : null;
+    final requestSourcePath = _currentFile.path;
+    final requestTrackId = _selectedNativeSubtitleTrack.id;
+    final requestLanguageCode = _selectedSubtitleLanguage.code;
+    var requestFailed = false;
     try {
-      final pgsCue = aiSubtitlesEnabled && _selectedSubtitleIsPgs
-          ? _activePgsCue
-          : null;
+      if (aiSubtitlesEnabled && _selectedSubtitleIsPgs && pgsCue == null) {
+        return;
+      }
       AiSubtitleResult result;
-      if (pgsCue != null && _lastPgsOcrCueStartMs != pgsCue.startMs) {
+      if (pgsCue != null) {
+        if (_lastPgsOcrCueStartMs == pgsCue.startMs &&
+            _activeCaption?.start.inMilliseconds == pgsCue.startMs) {
+          return;
+        }
         _lastPgsOcrCueStartMs = pgsCue.startMs;
         result = await aiSubtitleService.recognizeBitmapCue(
           pngBytes: pgsCue.bytes,
@@ -1206,31 +1266,35 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           language: _selectedSubtitleLanguage,
         );
         if (result.caption == null) {
-          final fallback = await aiSubtitleService.recognizeAndTranslate(
-            sourcePath: _currentFile.path,
-            position: player.state.position,
-            language: _selectedSubtitleLanguage,
-            sourceText: _embeddedSubtitleText,
-            audioTrackIndex: _activeAudioStreamIndex,
-            subtitleTrackIndex: _selectedSubtitleIsPgs
-                ? null
-                : _selectedSubtitleStreamIndex,
-          );
-          if (fallback.caption != null) result = fallback;
+          _lastPgsOcrCueStartMs = null;
+          final sourceText = _embeddedSubtitleText?.trim();
+          if (sourceText != null && sourceText.isNotEmpty) {
+            result = await aiSubtitleService.recognizeAndTranslate(
+              sourcePath: _currentFile.path,
+              position: player.state.position,
+              language: _selectedSubtitleLanguage,
+              sourceText: sourceText,
+              audioTrackIndex: _activeAudioStreamIndex,
+            );
+          }
         }
       } else {
         result = await aiSubtitleService.recognizeAndTranslate(
           sourcePath: _currentFile.path,
           position: player.state.position,
-            language: _selectedSubtitleLanguage,
-            sourceText: _embeddedSubtitleText,
-            audioTrackIndex: _activeAudioStreamIndex,
-            subtitleTrackIndex: _selectedSubtitleIsPgs
-                ? null
-                : _selectedSubtitleStreamIndex,
-          );
+          language: _selectedSubtitleLanguage,
+          sourceText: _embeddedSubtitleText,
+          audioTrackIndex: _activeAudioStreamIndex,
+          subtitleTrackIndex: _selectedSubtitleStreamIndex,
+        );
       }
-      if (!mounted || (!aiSubtitlesEnabled && !aiDubbingEnabled)) return;
+      if (!mounted ||
+          _currentFile.path != requestSourcePath ||
+          _selectedNativeSubtitleTrack.id != requestTrackId ||
+          _selectedSubtitleLanguage.code != requestLanguageCode ||
+          (!aiSubtitlesEnabled && !aiDubbingEnabled)) {
+        return;
+      }
       if (result.caption != null) {
         final caption = result.caption!;
         if (aiSubtitlesEnabled) {
@@ -1244,8 +1308,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         if (aiDubbingEnabled) unawaited(_speakDubbingCaption(caption));
       }
     } on AiSubtitleException catch (error) {
+      requestFailed = true;
+      if (pgsCue != null &&
+          _activeCaption?.start.inMilliseconds != pgsCue.startMs) {
+        _lastPgsOcrCueStartMs = null;
+      }
       if (aiSubtitlesEnabled) _showAiSubtitleNotice(error.message);
     } catch (error) {
+      requestFailed = true;
+      if (pgsCue != null &&
+          _activeCaption?.start.inMilliseconds != pgsCue.startMs) {
+        _lastPgsOcrCueStartMs = null;
+      }
       if (aiSubtitlesEnabled) {
         _showAiSubtitleNotice('AI subtitles unavailable: $error');
       }
@@ -1255,10 +1329,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           mounted &&
           (aiSubtitlesEnabled || aiDubbingEnabled);
       _subtitleRefreshAfterCurrent = false;
-      if (!refreshAgain && mounted && aiSubtitlesEnabled && _activeCaption == null) {
-        _hideSubtitleGeneratingIndicator();
-      }
-      if (refreshAgain) unawaited(_requestSubtitle());
+      if (refreshAgain && !requestFailed) unawaited(_requestSubtitle());
     }
   }
 
@@ -2849,12 +2920,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   String _subtitleTrackLabel(SubtitleTrack track, {int? index}) {
-    final language = trackLanguageLabel(
-      title: track.title,
-      language: track.language,
-    );
+    final language = _isEnglishSubtitleTrack(track)
+        ? 'English'
+        : trackLanguageLabel(title: track.title, language: track.language);
     final position = index == null ? 'Track' : 'Track ${index + 1}';
-    return '$position • $language';
+    final role = _subtitleTrackRole(track);
+    return '$position • $language${role == null ? '' : ' ($role)'}';
+  }
+
+  String? _subtitleTrackRole(SubtitleTrack track) {
+    final metadata = _subtitleMetadata(track);
+    if (RegExp(
+      r'signs?\s*(?:&|and|/|\+)\s*songs?|songs?\s*(?:&|and|/|\+)\s*signs?|signs? only|songs? only',
+    ).hasMatch(metadata)) {
+      return 'Signs & Songs';
+    }
+    if (_isFullDialogueSubtitle(track)) return 'Full Dialogue';
+
+    final tracks = player.state.tracks.subtitle
+        .where((item) => item.id != 'no' && item.id != 'auto')
+        .toList(growable: false);
+    final english = tracks.where(_isEnglishSubtitleTrack).toList();
+    if (english.length < 2) return null;
+    final englishIndex = english.indexWhere((item) => item.id == track.id);
+    if (englishIndex == 0) return 'Signs & Songs';
+    if (englishIndex == 1) return 'Full Dialogue';
+    return null;
   }
 
   String _subtitleTrackDescription(SubtitleTrack track) {
