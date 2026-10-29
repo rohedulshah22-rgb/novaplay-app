@@ -112,6 +112,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   int? _selectedSubtitleStreamIndex;
   int? _lastPgsOcrCueStartMs;
   PgsSubtitleCue? _activePgsCue;
+  AiCaption? _activeOriginalPgsCaption;
+  int? _lastNormalPgsOcrCueStartMs;
   List<PgsSubtitleCue> _pgsCues = const [];
   bool _automaticSubtitleFallbackAttempted = false;
   String? _lastAiSubtitleNotice;
@@ -425,8 +427,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _selectedSubtitleStreamIndex = currentStreamIndex;
     _automaticSubtitleFallbackAttempted = false;
     _lastPgsOcrCueStartMs = null;
+    _lastNormalPgsOcrCueStartMs = null;
     _pgsCues = const [];
     _activePgsCue = null;
+    _activeOriginalPgsCaption = null;
     _embeddedTextCues = const [];
     _activeEmbeddedTextCue = null;
     _liveEmbeddedSubtitleText = null;
@@ -516,6 +520,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _selectedSubtitleStreamIndex = null;
         _pgsCues = const [];
         _activePgsCue = null;
+        _activeOriginalPgsCaption = null;
+        _lastNormalPgsOcrCueStartMs = null;
         _embeddedTextCues = const [];
         _activeEmbeddedTextCue = null;
         _liveEmbeddedSubtitleText = null;
@@ -535,8 +541,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _selectedSubtitleLooksSignsOnly = false;
     _selectedSubtitleStreamIndex = null;
     _lastPgsOcrCueStartMs = null;
+    _lastNormalPgsOcrCueStartMs = null;
     _pgsCues = const [];
     _activePgsCue = null;
+    _activeOriginalPgsCaption = null;
     _automaticSubtitleFallbackAttempted = false;
     _embeddedTextCues = const [];
     _activeEmbeddedTextCue = null;
@@ -933,6 +941,41 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return null;
   }
 
+  Future<void> _loadOriginalPgsCaption(PgsSubtitleCue cue) async {
+    if (aiSubtitlesEnabled || !_selectedSubtitleIsPgs) return;
+    if (_lastNormalPgsOcrCueStartMs == cue.startMs) return;
+    _lastNormalPgsOcrCueStartMs = cue.startMs;
+    final sourcePath = _currentFile.path;
+    final trackId = _selectedNativeSubtitleTrack.id;
+    late final AiSubtitleResult result;
+    try {
+      result = await aiSubtitleService.recognizeBitmapCue(
+        pngBytes: cue.bytes,
+        start: Duration(milliseconds: cue.startMs),
+        end: Duration(milliseconds: cue.endMs),
+        language: const AiSubtitleLanguage(code: 'en', label: 'English'),
+      );
+    } catch (_) {
+      return; // The decoded bitmap remains visible as the normal-mode fallback.
+    }
+    if (!mounted ||
+        aiSubtitlesEnabled ||
+        _currentFile.path != sourcePath ||
+        _selectedNativeSubtitleTrack.id != trackId ||
+        _activePgsCue?.startMs != cue.startMs) {
+      return;
+    }
+    final caption = result.caption;
+    if (caption == null || caption.text.trim().isEmpty) return;
+    setState(() {
+      _activeOriginalPgsCaption = AiCaption(
+        text: caption.text.trim(),
+        start: Duration(milliseconds: cue.startMs),
+        end: Duration(milliseconds: cue.endMs),
+      );
+    });
+  }
+
   void _onPlaybackPosition(Duration position) {
     final cue = _pgsCueAt(position);
     final textCue = _textCueAt(position);
@@ -944,13 +987,20 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (mounted) {
       setState(() {
         _activePgsCue = cue;
+        if (cue == null ||
+            _activeOriginalPgsCaption?.start.inMilliseconds != cue.startMs) {
+          _activeOriginalPgsCaption = null;
+        }
         if (_embeddedTextCues.isNotEmpty) _activeEmbeddedTextCue = textCue;
       });
     }
     if (cue != null && aiSubtitlesEnabled) unawaited(_requestSubtitle());
+    if (cue != null && !aiSubtitlesEnabled) {
+      unawaited(_loadOriginalPgsCaption(cue));
+    }
     if (_selectedSubtitleIsPgs &&
         _pgsCues.isNotEmpty &&
-        (cue == null || _selectedSubtitleLooksSignsOnly) &&
+        _selectedSubtitleLooksSignsOnly &&
         !_automaticSubtitleFallbackAttempted) {
       unawaited(_loadAutomaticSubtitleFallback(announce: true));
     }
@@ -963,7 +1013,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       setState(() {
         _pgsCues = const [];
         _activePgsCue = null;
+        _activeOriginalPgsCaption = null;
         _lastPgsOcrCueStartMs = null;
+        _lastNormalPgsOcrCueStartMs = null;
       });
     }
     try {
@@ -986,8 +1038,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         unawaited(_loadAutomaticSubtitleFallback(announce: true));
       } else if (active != null && aiSubtitlesEnabled) {
         unawaited(_requestSubtitle());
-      } else if (active == null) {
-        unawaited(_loadAutomaticSubtitleFallback(announce: true));
+      } else if (active != null) {
+        unawaited(_loadOriginalPgsCaption(active));
       }
     } catch (_) {
       if (!mounted ||
@@ -999,6 +1051,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       setState(() {
         _pgsCues = const [];
         _activePgsCue = null;
+        _activeOriginalPgsCaption = null;
       });
       unawaited(_loadAutomaticSubtitleFallback(announce: true));
     }
@@ -1054,6 +1107,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (!mounted) return;
     setState(() {
       aiSubtitlesEnabled = enabled;
+      _lastNormalPgsOcrCueStartMs = null;
+      _activeOriginalPgsCaption = null;
       if (!enabled) {
         _activeCaption = null;
       }
@@ -1083,6 +1138,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       if (!aiDubbingEnabled) _stopSubtitleLoop();
       await player.setSubtitleTrack(_selectedNativeSubtitleTrack);
       await _configureNativeSubtitleOutput(visible: true);
+      final activePgsCue = _selectedSubtitleIsPgs
+          ? _pgsCueAt(player.state.position)
+          : null;
+      if (activePgsCue != null) {
+        _activePgsCue = activePgsCue;
+        unawaited(_loadOriginalPgsCaption(activePgsCue));
+      }
       if (!mounted) return;
       _showHud('AI CC off', Icons.closed_caption_disabled_rounded);
     }
@@ -1847,13 +1909,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           if (aiSubtitlesEnabled || cue == null) {
             return const SizedBox.expand();
           }
-          final caption = _activeCaption;
-          final translatedCaptionVisible =
-              aiSubtitlesEnabled &&
-              caption != null &&
-              position >= caption.start &&
-              position <= caption.end;
-          if (translatedCaptionVisible) return const SizedBox.expand();
+          final originalCaption = _activeOriginalPgsCaption;
+          final originalCaptionVisible =
+              originalCaption != null &&
+              position >= originalCaption.start &&
+              position < originalCaption.end;
+          if (originalCaptionVisible) return const SizedBox.expand();
 
           final aspect = aspectMode == '16:9'
               ? 16 / 9
@@ -2018,6 +2079,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 ),
               ),
               _pgsBitmapOverlay(size),
+              StreamBuilder<Duration>(
+                stream: player.stream.position,
+                initialData: player.state.position,
+                builder: (context, snapshot) {
+                  final caption = _activeOriginalPgsCaption;
+                  final position = snapshot.data ?? Duration.zero;
+                  final visible =
+                      !aiSubtitlesEnabled &&
+                      _selectedSubtitleIsPgs &&
+                      caption != null &&
+                      position >= caption.start &&
+                      position < caption.end;
+                  if (!visible) return const SizedBox.shrink();
+                  return Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 24,
+                    child: SafeArea(
+                      child: _AiCaptionPill(
+                        text: caption.text,
+                        fontScale: aiSubtitleFontScale,
+                      ),
+                    ),
+                  );
+                },
+              ),
               StreamBuilder<Duration>(
                 stream: player.stream.position,
                 initialData: player.state.position,
@@ -2618,6 +2705,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
               _selectedSubtitleStreamIndex = null;
               _pgsCues = const [];
               _activePgsCue = null;
+              _activeOriginalPgsCaption = null;
+              _lastNormalPgsOcrCueStartMs = null;
               _embeddedTextCues = const [];
               _activeEmbeddedTextCue = null;
               _liveEmbeddedSubtitleText = null;
@@ -2797,6 +2886,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _selectedSubtitleStreamIndex = null;
     _pgsCues = const [];
     _activePgsCue = null;
+    _activeOriginalPgsCaption = null;
+    _lastNormalPgsOcrCueStartMs = null;
     _embeddedTextCues = const [];
     _activeEmbeddedTextCue = null;
     _liveEmbeddedSubtitleText = null;
