@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:ffmpeg_kit_audio_flutter/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_audio_flutter/return_code.dart';
@@ -57,7 +56,9 @@ class PgsSubtitleService {
     final length = await output.length();
     if (length == 0 || length > 128 * 1024 * 1024) {
       await output.delete();
-      throw const PgsSubtitleException('The PGS subtitle file is invalid or too large.');
+      throw const PgsSubtitleException(
+        'The PGS subtitle file is invalid or too large.',
+      );
     }
     _temporaryFiles[cacheKey] = output;
     final bytes = await output.readAsBytes();

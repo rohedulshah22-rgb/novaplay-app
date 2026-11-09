@@ -362,9 +362,16 @@ class AiSubtitleService {
     if (sourcePath.startsWith('content://')) return null;
     final basePath = path.withoutExtension(sourcePath);
     for (final extension in [
-      '.en.srt', '.eng.srt', '.english.srt', '.srt',
-      '.en.vtt', '.eng.vtt', '.english.vtt', '.vtt',
-      '.ass', '.ssa',
+      '.en.srt',
+      '.eng.srt',
+      '.english.srt',
+      '.srt',
+      '.en.vtt',
+      '.eng.vtt',
+      '.english.vtt',
+      '.vtt',
+      '.ass',
+      '.ssa',
     ]) {
       final file = File('$basePath$extension');
       if (!await file.exists()) continue;
@@ -374,7 +381,6 @@ class AiSubtitleService {
     return null;
   }
 
-
   Future<AiCaption?> _readEpisodeSubtitleCaption(
     String sourcePath,
     Duration position,
@@ -382,7 +388,7 @@ class AiSubtitleService {
     if (_subtitleSearchEndpoint.isEmpty) return null;
     try {
       final file = await _fetchEpisodeSubtitle(sourcePath);
-      return file == null ? null : _parseCaptionFile(file, position);
+      return file == null ? null : await _parseCaptionFile(file, position);
     } catch (_) {
       return null;
     }
@@ -403,10 +409,10 @@ class AiSubtitleService {
       _episodeSubtitleFiles[sourcePath] = null;
       return null;
     }
-    final seasonNumber = episodeMatch.group(1) ??
-        episodeMatch.group(3) ??
-        episodeMatch.group(5);
-    final episodeNumber = episodeMatch.group(2) ??
+    final seasonNumber =
+        episodeMatch.group(1) ?? episodeMatch.group(3) ?? episodeMatch.group(5);
+    final episodeNumber =
+        episodeMatch.group(2) ??
         episodeMatch.group(4) ??
         episodeMatch.group(6) ??
         episodeMatch.group(7);
@@ -414,19 +420,22 @@ class AiSubtitleService {
       _episodeSubtitleFiles[sourcePath] = null;
       return null;
     }
-    final endpoint = Uri.parse(_subtitleSearchEndpoint).replace(
-      queryParameters: {
-        'query': title,
-        'filename': filename,
-        'episode': episodeMatch.group(0)!,
-        if (seasonNumber != null) 'season_number': seasonNumber,
-        'episode_number': episodeNumber,
-        'language': 'en',
-      },
-    );
-    final response = await _client.get(endpoint).timeout(
-      const Duration(seconds: 12),
-    );
+    final queryParameters = <String, String>{
+      'query': title,
+      'filename': filename,
+      'episode': episodeMatch.group(0)!,
+      'episode_number': episodeNumber,
+      'language': 'en',
+    };
+    if (seasonNumber != null) {
+      queryParameters['season_number'] = seasonNumber;
+    }
+    final endpoint = Uri.parse(
+      _subtitleSearchEndpoint,
+    ).replace(queryParameters: queryParameters);
+    final response = await _client
+        .get(endpoint)
+        .timeout(const Duration(seconds: 12));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AiSubtitleException(
         'Episode subtitle search failed (${response.statusCode}).',
@@ -437,7 +446,8 @@ class AiSubtitleService {
       final decoded = _decodeObject(subtitleText);
       subtitleText = _readText(decoded) ?? '';
       if (subtitleText.isEmpty && decoded['url'] is String) {
-        final download = await _client.get(Uri.parse(decoded['url'] as String))
+        final download = await _client
+            .get(Uri.parse(decoded['url'] as String))
             .timeout(const Duration(seconds: 12));
         if (download.statusCode >= 200 && download.statusCode < 300) {
           subtitleText = download.body;
@@ -490,9 +500,16 @@ class AiSubtitleService {
     if (!sourcePath.startsWith('content://')) {
       final basePath = path.withoutExtension(sourcePath);
       for (final extension in [
-        '.en.srt', '.eng.srt', '.english.srt', '.srt',
-        '.en.vtt', '.eng.vtt', '.english.vtt', '.vtt',
-        '.ass', '.ssa',
+        '.en.srt',
+        '.eng.srt',
+        '.english.srt',
+        '.srt',
+        '.en.vtt',
+        '.eng.vtt',
+        '.english.vtt',
+        '.vtt',
+        '.ass',
+        '.ssa',
       ]) {
         final file = File('$basePath$extension');
         if (await file.exists()) return file;

@@ -11,15 +11,18 @@ void main() {
     final requests = <http.Request>[];
     final client = MockClient((request) async {
       requests.add(request);
-      return http.Response(
-        jsonEncode([
-          [
-            ['হ্যালো, পৃথিবী!', 'Hello, world!', null, null, 1],
-          ],
-          null,
-          'en',
-        ]),
+      return http.Response.bytes(
+        utf8.encode(
+          jsonEncode([
+            [
+              ['হ্যালো, পৃথিবী!', 'Hello, world!', null, null, 1],
+            ],
+            null,
+            'en',
+          ]),
+        ),
         200,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
       );
     });
     final service = AiSubtitleService(client: client);

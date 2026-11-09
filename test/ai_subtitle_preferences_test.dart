@@ -12,7 +12,7 @@ void main() {
     final values = await AiSubtitlePreferences.load();
 
     expect(values.enabled, isFalse);
-    expect(values.language, 'English');
+    expect(values.language, 'Bengali');
     expect(values.fontScale, 1.0);
   });
 
