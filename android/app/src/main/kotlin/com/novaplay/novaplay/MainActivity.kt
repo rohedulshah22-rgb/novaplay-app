@@ -20,6 +20,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.BatteryManager
+import android.os.storage.StorageManager
 import android.provider.MediaStore
 import android.provider.Settings
 import android.media.MediaScannerConnection
@@ -107,6 +108,7 @@ class MainActivity : AudioServiceFragmentActivity() {
                 "requestMediaPermission" -> requestMediaPermission(result)
                 "openAppSettings" -> openAppSettings(result)
                 "queryVideos" -> queryVideos(result)
+                "getStorageVolumes" -> result.success(storageVolumes())
                 "cacheThumbnail" -> cacheThumbnail(call, result)
                 "publishAudio" -> publishAudio(call, result)
                 "showToolNotification" -> showToolNotification(call, result)
@@ -115,6 +117,39 @@ class MainActivity : AudioServiceFragmentActivity() {
                 "deleteMedia" -> deleteMedia(call, result)
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun storageVolumes(): List<Map<String, Any>> {
+        val roots = linkedMapOf<String, Boolean>()
+        val internalRoot = Environment.getExternalStorageDirectory().absolutePath
+            .trimEnd('/')
+        roots[internalRoot] = false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val manager = getSystemService(Context.STORAGE_SERVICE) as StorageManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                manager.storageVolumes.forEach { volume ->
+                    if (volume.state != Environment.MEDIA_MOUNTED) return@forEach
+                    val root = volume.directory?.absolutePath?.trimEnd('/') ?: return@forEach
+                    if (root != internalRoot && volume.isRemovable) roots[root] = true
+                }
+            } else {
+                getExternalFilesDirs(null).orEmpty().filterNotNull().forEach { appDir ->
+                    val marker = "/Android/data/"
+                    val markerIndex = appDir.absolutePath.indexOf(marker)
+                    if (markerIndex <= 0) return@forEach
+                    val root = appDir.absolutePath.substring(0, markerIndex).trimEnd('/')
+                    if (root != internalRoot && Environment.getExternalStorageState(appDir) == Environment.MEDIA_MOUNTED) {
+                        roots[root] = true
+                    }
+                }
+            }
+        }
+
+        return roots.map { (root, removable) ->
+            mapOf("rootPath" to root, "isRemovable" to removable)
         }
     }
 

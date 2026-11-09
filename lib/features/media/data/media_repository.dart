@@ -39,6 +39,19 @@ class PermissionSnapshot {
       );
 }
 
+class StorageVolumeInfo {
+  const StorageVolumeInfo({required this.rootPath, required this.isRemovable});
+
+  final String rootPath;
+  final bool isRemovable;
+
+  factory StorageVolumeInfo.fromMap(Map<dynamic, dynamic> map) =>
+      StorageVolumeInfo(
+        rootPath: (map['rootPath'] as String? ?? '').replaceAll('\\', '/'),
+        isRemovable: map['isRemovable'] == true,
+      );
+}
+
 class MediaRepository {
   const MediaRepository();
 
@@ -106,6 +119,22 @@ class MediaRepository {
     await _mediaChannel.invokeMethod<void>('openAppSettings');
   }
 
+  Future<List<StorageVolumeInfo>> storageVolumes() async {
+    if (!Platform.isAndroid) return const [];
+    try {
+      final values = await _mediaChannel.invokeMethod<List<dynamic>>(
+        'getStorageVolumes',
+      );
+      return (values ?? const [])
+          .whereType<Map>()
+          .map(StorageVolumeInfo.fromMap)
+          .where((volume) => volume.rootPath.isNotEmpty)
+          .toList(growable: false);
+    } on PlatformException {
+      return const [];
+    }
+  }
+
   Future<List<VideoFile>> scan({
     bool force = false,
     bool includeHidden = false,
@@ -135,15 +164,16 @@ class MediaRepository {
 
     final excluded = await mediaPreferences.excludedFolders();
     final hideShort = await mediaPreferences.hideShortClips();
-    final result = merged.values
-        .where(
-          (video) =>
-              includeHidden ||
-              (!isExcludedFolder(video.path, excluded) &&
-                  (!hideShort || video.duration.inSeconds >= 30)),
-        )
-        .toList()
-      ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
+    final result =
+        merged.values
+            .where(
+              (video) =>
+                  includeHidden ||
+                  (!isExcludedFolder(video.path, excluded) &&
+                      (!hideShort || video.duration.inSeconds >= 30)),
+            )
+            .toList()
+          ..sort((a, b) => b.modifiedAt.compareTo(a.modifiedAt));
     return result.take(5000).toList(growable: false);
   }
 

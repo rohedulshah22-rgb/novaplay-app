@@ -5,14 +5,14 @@
 NovaPlay uses the **Nebula-Play Glowing Triangle** launcher mark: a dark AMOLED squircle with an electric cyan-to-purple play triangle. The editable vector master is `assets/icons/app_icon.svg`; `assets/icons/play_foreground.svg` is the transparent adaptive-icon foreground. The PNG companions are generated deterministically with `tooling/render_app_icon.sh`, then `flutter_launcher_icons` creates the Android mdpi, hdpi, xhdpi, xxhdpi, and xxxhdpi resources from `pubspec.yaml`.
 
 
-NovaPlay is a dark-first, offline Android video player built with Flutter. Current release: **1.1.4+14**. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
+NovaPlay is a dark-first, offline Android video player built with Flutter. Current release: **1.1.5+15**. Its interface is intentionally minimal and cinematic rather than resembling a legacy desktop media player: deep AMOLED surfaces, quiet glass cards, cyan/violet accents, strong typography, and gesture-first playback controls.
 
 ## Included product surface
 
 | Area | Included implementation |
 |---|---|
 | Home | Resume-watching carousel, smart folder summaries, instant search, grid/list toggle, empty and permission states |
-| Library | Recursive local scan for MP4, MKV, AVI, WEBM, MOV, FLV, TS, M4V, 3GP, MPEG, and MPG |
+| Library | Recursive local scan for MP4, MKV, AVI, WEBM, MOV, FLV, TS, M4V, 3GP, MPEG, and MPG; Folders tab separates internal memory from mounted removable SD storage |
 | Filtering | Duration chips and resolution chips, with search across filenames and folder names |
 | Playback | MediaKit/libmpv-backed video rendering, centered Previous/Stop/Play-Pause/Next controls, folder-aware queue playback, automatic next-video advance, swipe-left/right navigation with animated title badges, instant single-tap HUD toggle, cumulative double-tap ±10-second seeking with animated side indicators, horizontal seek preview, left brightness swipe, right volume swipe, auto-hide controls, lock mode, and speed presets from 0.25x to 3x |
 | Dialogue Enhancer | Speech-clarity toggle in the top-right playback settings sheet, backed by an MPV `af` chain |
@@ -80,7 +80,7 @@ flutter test
 flutter run
 ```
 
-The current app version is `1.1.4+14` (`versionName 1.1.4`, `versionCode 14`). Build the production Android App Bundle with an Android SDK configured for the project:
+The current app version is `1.1.5+15` (`versionName 1.1.5`, `versionCode 15`). Build the production Android App Bundle with an Android SDK configured for the project:
 
 ```bash
 flutter build appbundle --release

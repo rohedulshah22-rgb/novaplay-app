@@ -57,9 +57,10 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
   );
 
   List<VideoFile> visibleVideos(MediaLibraryState library) {
+    final allowedIds = widget.videos.map((file) => file.id).toSet();
     final source = library.hasPermission
         ? library.files
-              .where((file) => file.folderName == widget.folder.name)
+              .where((file) => allowedIds.contains(file.id))
               .toList(growable: false)
         : widget.videos;
     final filtered = source.where((file) {
@@ -232,9 +233,8 @@ class _FolderVideosScreenState extends ConsumerState<FolderVideosScreen> {
                 onMore: () => showVideoActions(
                   context,
                   videos[index],
-                  onChanged: () => ref
-                      .read(mediaLibraryProvider.notifier)
-                      .load(force: true),
+                  onChanged: () =>
+                      ref.read(mediaLibraryProvider.notifier).load(force: true),
                 ),
               ),
             )
