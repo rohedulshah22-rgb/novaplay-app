@@ -97,6 +97,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   String aiSubtitleLanguage = 'Bengali';
   double aiSubtitleFontScale = 1.0;
   AiCaption? _activeCaption;
+  final Map<String, AiCaption> _prefetchedAiCaptions = {};
+  final Set<String> _aiCaptionPrefetchInFlight = {};
   bool _subtitleRequestInFlight = false;
   bool _subtitleRefreshAfterCurrent = false;
   bool _subtitleGenerating = false;
@@ -464,6 +466,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _selectedSubtitleLooksSignsOnly = _isSignsOnlySubtitle(track);
     _selectedSubtitleStreamIndex = currentStreamIndex;
     _automaticSubtitleFallbackAttempted = false;
+    _prefetchedAiCaptions.clear();
     _lastPgsOcrCueStartMs = null;
     _lastNormalPgsOcrCueStartMs = null;
     _pgsCues = const [];
@@ -511,6 +514,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _embeddedTextCues = cues;
         _activeEmbeddedTextCue = _textCueAt(player.state.position);
       });
+      if (aiSubtitlesEnabled) {
+        _syncBufferedAiCaption(player.state.position);
+        _prefetchUpcomingAiCaption(player.state.position);
+      }
       if (cues.isEmpty && _liveEmbeddedSubtitleText == null) {
         await _loadAutomaticSubtitleFallback(announce: true);
       }
@@ -554,6 +561,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             'Auto · ${file.uri.pathSegments.isEmpty ? file.path : file.uri.pathSegments.last}',
         language: 'en',
       );
+      _prefetchedAiCaptions.clear();
       setState(() {
         _selectedNativeSubtitleTrack = externalTrack;
         _selectedSubtitleIsPgs = false;
@@ -576,6 +584,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   }
 
   void _resetCurrentItemSubtitleState() {
+    _prefetchedAiCaptions.clear();
     _selectedNativeSubtitleTrack = SubtitleTrack.auto();
     _selectedSubtitleIsPgs = false;
     _selectedSubtitleLooksSignsOnly = false;
@@ -1018,6 +1027,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     if (position > Duration.zero && _subtitleGenerating) {
       _hideSubtitleGeneratingIndicator();
     }
+    if (aiSubtitlesEnabled) {
+      _syncBufferedAiCaption(position);
+      _prefetchUpcomingAiCaption(position);
+    }
     final cue = _pgsCueAt(position);
     final textCue = _textCueAt(position);
     final pgsChanged = cue?.startMs != _activePgsCue?.startMs;
@@ -1075,6 +1088,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
         _pgsCues = cues;
         _activePgsCue = _pgsCueAt(player.state.position);
       });
+      if (aiSubtitlesEnabled) {
+        _syncBufferedAiCaption(player.state.position);
+        _prefetchUpcomingAiCaption(player.state.position);
+      }
       final active = _activePgsCue;
       if (_selectedSubtitleLooksSignsOnly) {
         unawaited(_loadAutomaticSubtitleFallback(announce: true));
@@ -1193,6 +1210,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   Future<void> _setAiSubtitleLanguage(String language) async {
     _lastDubbedCaption = null;
+    _prefetchedAiCaptions.clear();
     setState(() {
       aiSubtitleLanguage = language;
       if (aiSubtitlesEnabled) _activeCaption = null;
@@ -1227,8 +1245,143 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _subtitleTimer = null;
   }
 
+  String _aiCaptionBufferKey(int startMs) =>
+      '${_currentFile.path}\u0000${_selectedNativeSubtitleTrack.id}\u0000'
+      '${_selectedSubtitleLanguage.code}\u0000$startMs';
+
+  void _prefetchUpcomingAiCaption(Duration position) {
+    if (!aiSubtitlesEnabled) return;
+    final positionMs = position.inMilliseconds;
+    final lookAheadMs = positionMs + const Duration(seconds: 2).inMilliseconds;
+
+    if (_selectedSubtitleIsPgs) {
+      for (final cue in _pgsCues) {
+        if (cue.startMs > lookAheadMs) break;
+        if (cue.endMs <= positionMs) continue;
+        final key = _aiCaptionBufferKey(cue.startMs);
+        if (_prefetchedAiCaptions.containsKey(key) ||
+            !_aiCaptionPrefetchInFlight.add(key)) {
+          continue;
+        }
+        unawaited(_prefetchPgsAiCaption(cue, key));
+        return;
+      }
+      return;
+    }
+
+    for (final cue in _embeddedTextCues) {
+      final startMs = cue.start.inMilliseconds;
+      if (startMs > lookAheadMs) break;
+      if (cue.end <= position) continue;
+      final key = _aiCaptionBufferKey(startMs);
+      if (_prefetchedAiCaptions.containsKey(key) ||
+          !_aiCaptionPrefetchInFlight.add(key)) {
+        continue;
+      }
+      unawaited(_prefetchTextAiCaption(cue, key));
+      return;
+    }
+  }
+
+  Future<void> _prefetchPgsAiCaption(PgsSubtitleCue cue, String key) async {
+    final sourcePath = _currentFile.path;
+    final trackId = _selectedNativeSubtitleTrack.id;
+    final language = _selectedSubtitleLanguage;
+    try {
+      final result = await aiSubtitleService.recognizeBitmapCue(
+        pngBytes: cue.bytes,
+        start: Duration(milliseconds: cue.startMs),
+        end: Duration(milliseconds: cue.endMs),
+        language: language,
+      );
+      if (!_canCacheAiCaption(sourcePath, trackId, language.code)) return;
+      final caption = result.caption;
+      if (caption == null || caption.text.trim().isEmpty) return;
+      _prefetchedAiCaptions[key] = AiCaption(
+        text: caption.text.trim(),
+        start: Duration(milliseconds: cue.startMs),
+        end: Duration(milliseconds: cue.endMs),
+      );
+      _syncBufferedAiCaption(player.state.position);
+    } catch (_) {
+      // The next timeline tick may retry before this cue reaches the video.
+    } finally {
+      _aiCaptionPrefetchInFlight.remove(key);
+    }
+  }
+
+  Future<void> _prefetchTextAiCaption(AiCaption cue, String key) async {
+    final sourcePath = _currentFile.path;
+    final trackId = _selectedNativeSubtitleTrack.id;
+    final language = _selectedSubtitleLanguage;
+    try {
+      final result = await aiSubtitleService.translateCaptionCue(
+        cue: cue,
+        language: language,
+      );
+      if (!_canCacheAiCaption(sourcePath, trackId, language.code)) return;
+      final caption = result.caption;
+      if (caption == null || caption.text.trim().isEmpty) return;
+      _prefetchedAiCaptions[key] = caption;
+      _syncBufferedAiCaption(player.state.position);
+    } catch (_) {
+      // The next timeline tick may retry before this cue reaches the video.
+    } finally {
+      _aiCaptionPrefetchInFlight.remove(key);
+    }
+  }
+
+  bool _canCacheAiCaption(
+    String sourcePath,
+    String trackId,
+    String languageCode,
+  ) =>
+      mounted &&
+      _currentFile.path == sourcePath &&
+      _selectedNativeSubtitleTrack.id == trackId &&
+      _selectedSubtitleLanguage.code == languageCode;
+
+  void _syncBufferedAiCaption(Duration position) {
+    if (!aiSubtitlesEnabled) return;
+    AiCaption? sourceCue;
+    if (_selectedSubtitleIsPgs) {
+      final cue = _pgsCueAt(position);
+      if (cue != null) {
+        sourceCue = AiCaption(
+          text: '',
+          start: Duration(milliseconds: cue.startMs),
+          end: Duration(milliseconds: cue.endMs),
+        );
+      }
+    } else if (_embeddedTextCues.isNotEmpty) {
+      sourceCue = _textCueAt(position);
+    } else {
+      return;
+    }
+
+    final nextCaption = sourceCue == null
+        ? null
+        : _prefetchedAiCaptions[_aiCaptionBufferKey(
+            sourceCue.start.inMilliseconds,
+          )];
+    final current = _activeCaption;
+    if (current?.text == nextCaption?.text &&
+        current?.start == nextCaption?.start &&
+        current?.end == nextCaption?.end) {
+      return;
+    }
+    if (mounted) setState(() => _activeCaption = nextCaption);
+  }
+
   Future<void> _requestSubtitle() async {
     if (!aiSubtitlesEnabled && !aiDubbingEnabled) return;
+    if (aiSubtitlesEnabled &&
+        !aiDubbingEnabled &&
+        (_selectedSubtitleIsPgs || _embeddedTextCues.isNotEmpty)) {
+      _syncBufferedAiCaption(player.state.position);
+      _prefetchUpcomingAiCaption(player.state.position);
+      return;
+    }
     if (_subtitleRequestInFlight) {
       _subtitleRefreshAfterCurrent = true;
       return;
@@ -1291,6 +1444,13 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           _selectedNativeSubtitleTrack.id != requestTrackId ||
           _selectedSubtitleLanguage.code != requestLanguageCode ||
           (!aiSubtitlesEnabled && !aiDubbingEnabled)) {
+        return;
+      }
+      if (aiSubtitlesEnabled &&
+          !aiDubbingEnabled &&
+          (_selectedSubtitleIsPgs || _embeddedTextCues.isNotEmpty)) {
+        _syncBufferedAiCaption(player.state.position);
+        _prefetchUpcomingAiCaption(player.state.position);
         return;
       }
       if (result.caption != null) {
@@ -2272,7 +2432,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   final visible =
                       caption != null &&
                       position >= caption.start &&
-                      position <= caption.end;
+                      position < caption.end;
 
                   if (!visible) return const SizedBox.shrink();
                   return Positioned(

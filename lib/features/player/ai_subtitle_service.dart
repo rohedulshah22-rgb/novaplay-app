@@ -86,6 +86,12 @@ class AiSubtitleService {
     }
   }
 
+  /// Translates an extracted subtitle cue without changing its playback window.
+  Future<AiSubtitleResult> translateCaptionCue({
+    required AiCaption cue,
+    required AiSubtitleLanguage language,
+  }) => _captionForSourceCaption(cue, language);
+
   Future<AiSubtitleResult> recognizeAndTranslate({
     required String sourcePath,
     required Duration position,
