@@ -371,7 +371,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       _selectedSubtitleLooksSignsOnly = false;
       _selectedSubtitleStreamIndex = null;
       await player.setSubtitleTrack(SubtitleTrack.no());
-      await _configureNativeSubtitleOutput(visible: true);
+      await _configureNativeSubtitleOutput(visible: false);
       await _loadAutomaticSubtitleFallback(announce: announce);
       return;
     }
@@ -475,7 +475,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     _embeddedSubtitleText = null;
     _lastSubtitleCueText = null;
     await player.setSubtitleTrack(track);
-    await _configureNativeSubtitleOutput(visible: !aiSubtitlesEnabled);
+    await _configureNativeSubtitleOutput(
+      visible: !aiSubtitlesEnabled,
+      delay: Duration.zero,
+    );
     if (_selectedSubtitleIsPgs) {
       unawaited(_loadPgsSubtitle(currentStreamIndex));
     } else {
@@ -914,6 +917,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       aiSubtitleLanguage = values.language;
       aiSubtitleFontScale = values.fontScale;
     });
+    await _configureNativeSubtitleOutput(
+      visible: !values.enabled && _selectedNativeSubtitleTrack.id != 'no',
+      delay: Duration.zero,
+    );
     if (aiDubbingEnabled) unawaited(_configureDubbingTts());
     if (aiSubtitlesEnabled || aiDubbingEnabled) {
       if (aiSubtitlesEnabled) _startSubtitleGeneratingIndicator();
@@ -932,7 +939,8 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     Duration delay = const Duration(milliseconds: 300),
   }) async {
     if (delay > Duration.zero) await Future<void>.delayed(delay);
-    final nativePlayer = player.platform as dynamic;
+    final nativePlayer = player.platform;
+    if (nativePlayer is! NativePlayer) return;
     final properties = {
       'sub-visibility': visible ? 'yes' : 'no',
       'blend-subtitles': 'yes',
@@ -2121,13 +2129,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       aspectRatio: _videoAspectRatio,
                       controls: NoVideoControls,
                       subtitleViewConfiguration: SubtitleViewConfiguration(
-                        // Keep this view attached so MediaKit continues
-                        // emitting text cues; bitmap/translated output is
-                        // painted separately and must not be duplicated here.
-                        visible: true,
-                        style: TextStyle(
-                          color: Colors.transparent,
-                          backgroundColor: Colors.transparent,
+                        // Show original text subtitles in Normal Mode. AI CC
+                        // replaces this with its translated caption overlay.
+                        visible: !aiSubtitlesEnabled,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          backgroundColor: Color(0xB8000000),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 24,
+                          height: 1.25,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              blurRadius: 3,
+                              offset: Offset(1, 1),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -2170,6 +2187,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   final visible =
                       !aiSubtitlesEnabled &&
                       !_selectedSubtitleIsPgs &&
+                      _liveEmbeddedSubtitleText == null &&
                       caption != null &&
                       position >= caption.start &&
                       position < caption.end;
